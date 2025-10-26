@@ -7,24 +7,13 @@ using Statistics
     standardize_reactor_type(reactor_type)
 
 Standardize reactor type names to basic technology categories
-
-# Arguments
-- `reactor_type::String`: Original reactor type from data
-
-# Returns
-- `String`: Standardized reactor type
 """
 function standardize_reactor_type(reactor_type)
-    # Convert to uppercase and strip whitespace
     rtype = uppercase(strip(string(reactor_type)))
 
     # PWR variants
-    pwr_types = [
-        "PWR", "EPR", "EPR (PWR)", "EPR-1750",
-        "AP1000", "APR1400",
-        "VVER1200 (PWR)", "VVER", "VVER1200",
-        "IPWR"  # Integral PWR
-    ]
+    pwr_types = ["PWR", "EPR", "EPR (PWR)", "EPR-1750", "AP1000", "APR1400",
+                 "VVER1200 (PWR)", "VVER", "VVER1200", "IPWR"]
 
     # BWR variants
     bwr_types = ["BWR"]
@@ -61,27 +50,32 @@ function standardize_reactor_type(reactor_type)
         return "MR"
     else
         println("⚠ Warning: Unknown reactor type '$reactor_type', keeping as-is")
-        return reactor_type
+        return string(reactor_type)
     end
 end
 
 
 """
-    assign_tech_category(size_category, reactor_type)
+    get_reference_values(reactor_type)
 
-Assign combined technology category (Size-Type)
-
-# Arguments
-- `size_category::String`: Size category (SMR, Large, etc.)
-- `reactor_type::String`: Reactor type (PWR, BWR, etc.)
-
-# Returns
-- `String`: Combined category like 'SMR-PWR', 'Large-BWR', etc.
+Get reference project values based on reactor type (from existing data)
 """
-function assign_tech_category(size_category, reactor_type)
-    size = ismissing(size_category) ? "Unknown" : size_category
-    rtype = ismissing(reactor_type) ? "Unknown" : reactor_type
-    return "$size-$rtype"
+function get_reference_values(reactor_type)
+    if reactor_type == "PWR"
+        return (investment=8600000, capacity=1117)
+    elseif reactor_type == "BWR"
+        return (investment=9722604, capacity=935)
+    elseif reactor_type == "HTR"
+        return (investment=7195125, capacity=330)
+    elseif reactor_type == "SFR"
+        return (investment=27747200, capacity=1250)
+    elseif reactor_type == "MSR"
+        return (investment=8600000, capacity=1000)  # Default, adjust as needed
+    elseif reactor_type == "LFR"
+        return (investment=27747200, capacity=1250)  # Similar to SFR
+    else
+        return (investment=8600000, capacity=1000)  # Default fallback
+    end
 end
 
 
@@ -98,8 +92,23 @@ function clean_numeric_string(s)
     str = string(s)
     str = replace(str, " " => "")
     str = replace(str, "–" => "")
-    str = replace(str, "-" => "")
     str = replace(str, "x" => "")
+
+    # Handle ranges like "85-90" by taking the midpoint
+    if occursin("-", str) && !startswith(str, "-")
+        parts = split(str, "-")
+        if length(parts) == 2
+            try
+                val1 = parse(Float64, parts[1])
+                val2 = parse(Float64, parts[2])
+                return (val1 + val2) / 2.0
+            catch
+                str = replace(str, "-" => "")
+            end
+        end
+    else
+        str = replace(str, "-" => "")
+    end
 
     if isempty(str)
         return missing
@@ -116,21 +125,12 @@ end
 """
     extract_reactor_data(excel_file::String; output_csv::String="_input/reactor_data.csv")
 
-Extract reactor data from Excel for LCOE Monte Carlo simulation
-
-# Arguments
-- `excel_file::String`: Path to your Excel file
-- `output_csv::String`: Output CSV filename (default: "_input/reactor_data.csv")
-
-# Returns
-- `DataFrame`: Processed reactor data
+Extract reactor data from Excel and format to match existing project_data.csv structure
 """
 function extract_reactor_data(excel_file::String; output_csv::String="_input/reactor_data.csv")
-    # Read the specific sheet
+    # Read the Excel file
     xf = XLSX.readxlsx(excel_file)
     sheet = xf["Datasheet"]
-
-    # Read data starting from row 3 (skip first 2 rows)
     df = DataFrame(XLSX.gettable(sheet; first_row=3))
 
     println("Available columns in Excel:")
@@ -139,132 +139,145 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
     println()
 
-    # Define column mapping for LCOE simulation
+    # Define column mapping
     column_mapping = Dict(
-        # Identifiers
-        "Country" => :country,
         "Project" => :name,
-        "Type" => :reactor_type,
-        "FOAK/NOAK*" => :foak_noak,
-        "Large medium micro" => :size_category,
-
-        # Core economic parameters
+        "Type" => :reactor_type_raw,
         "Capacity (net MWe)" => :capacity_mwe,
         "OCC (USD2020/kW)" => :occ_usd_per_kw,
-
-        # Construction time parameters
         "planned Construction time (y)" => :construction_time_planned,
         "Actual / total build time (y)" => :construction_time_actual,
-
-        # Operational parameters
         "Lifetime (y)" => :lifetime_years,
         "Capacity factor (%)" => :capacity_factor_pct,
-
-        # Cost parameters
         "OPEX fixed (USD2020/MW-yr)" => :opex_fixed_usd_per_mw_yr,
         "OPEX variable (USD2020/MWh)" => :opex_variable_usd_per_mwh,
         "Fuel (USD2020/MWh)" => :fuel_usd_per_mwh,
-        "Waste (USD2020/MWh)" => :waste_usd_per_mwh,
-        "Decom (% of CAPEX)" => :decom_pct_of_capex,
-
-        # Optional but useful
-        "WACC (real %)" => :wacc_pct,
-        "Year" => :data_year
+        "Large medium micro" => :size_category,
+        "FOAK/NOAK*" => :foak_noak
     )
 
     # Check which columns exist
     available_cols = Dict{String, Symbol}()
-    missing_cols = String[]
-
     for (old_name, new_name) in column_mapping
         if old_name in names(df)
             available_cols[old_name] = new_name
-        else
-            push!(missing_cols, old_name)
         end
-    end
-
-    if !isempty(missing_cols)
-        println("Warning: These columns not found: $missing_cols\n")
-    end
-
-    if isempty(available_cols)
-        println("ERROR: No matching columns found!")
-        return nothing
     end
 
     # Select and rename columns
-    df_output = select(df, keys(available_cols)...)
-    rename!(df_output, available_cols)
+    df_work = select(df, keys(available_cols)...)
+    rename!(df_work, available_cols)
 
     # Clean numeric columns
-    numeric_cols = [
-        :capacity_mwe, :occ_usd_per_kw,
-        :construction_time_planned, :construction_time_actual,
-        :lifetime_years, :capacity_factor_pct,
-        :opex_fixed_usd_per_mw_yr, :opex_variable_usd_per_mwh,
-        :fuel_usd_per_mwh, :waste_usd_per_mwh,
-        :decom_pct_of_capex, :wacc_pct
-    ]
+    numeric_cols = [:capacity_mwe, :occ_usd_per_kw, :construction_time_planned,
+                    :construction_time_actual, :lifetime_years, :capacity_factor_pct,
+                    :opex_fixed_usd_per_mw_yr, :opex_variable_usd_per_mwh, :fuel_usd_per_mwh]
 
     for col in numeric_cols
-        if col in names(df_output)
-            df_output[!, col] = clean_numeric_string.(df_output[!, col])
-        end
-    end
-
-    # === Standardize reactor types ===
-    println("--- Reactor Type Standardization ---")
-    if :reactor_type in names(df_output)
-        println("Original reactor types:")
-        println(combine(groupby(df_output, :reactor_type), nrow => :count))
-
-        df_output[!, :reactor_type] = standardize_reactor_type.(df_output[!, :reactor_type])
-
-        println("\nStandardized reactor types:")
-        println(combine(groupby(df_output, :reactor_type), nrow => :count))
-        println()
-    end
-
-    # === Assign combined tech category ===
-    if :size_category in names(df_output) && :reactor_type in names(df_output)
-        df_output[!, :tech_category] = assign_tech_category.(df_output[!, :size_category], df_output[!, :reactor_type])
-        println("--- Technology Categories Created ---")
-        println(combine(groupby(df_output, :tech_category), nrow => :count))
-        println()
-    end
-
-    # Data validation and cleaning
-    println("--- Data Cleaning ---")
-
-    # Calculate absolute OCC (total capital cost)
-    if :occ_usd_per_kw in names(df_output) && :capacity_mwe in names(df_output)
-        df_output[!, :occ_total_million_usd] = (
-            df_output[!, :occ_usd_per_kw] .* df_output[!, :capacity_mwe] .* 1000 ./ 1e6
-        )
-    end
-
-    # Use actual construction time if available, otherwise planned
-    if :construction_time_actual in names(df_output)
-        if :construction_time_planned in names(df_output)
-            df_output[!, :construction_time] = coalesce.(df_output[!, :construction_time_actual], df_output[!, :construction_time_planned])
-        else
-            df_output[!, :construction_time] = df_output[!, :construction_time_actual]
+        if col in names(df_work)
+            df_work[!, col] = clean_numeric_string.(df_work[!, col])
         end
     end
 
     # Remove rows with missing critical data
-    critical_cols = [:name, :capacity_mwe, :occ_usd_per_kw]
-    existing_critical = [col for col in critical_cols if col in names(df_output)]
+    df_work = dropmissing(df_work, [:name, :capacity_mwe, :occ_usd_per_kw])
 
-    if !isempty(existing_critical)
-        df_output = dropmissing(df_output, existing_critical)
+    # Standardize reactor types
+    println("--- Reactor Type Standardization ---")
+    df_work[!, :type] = standardize_reactor_type.(df_work[!, :reactor_type_raw])
+    println("Standardized types:")
+    println(combine(groupby(df_work, :type), nrow => :count))
+    println()
+
+    # Create output dataframe with exact column structure from project_data.csv
+    df_output = DataFrame()
+
+    # Column 1: name
+    df_output[!, :name] = df_work[!, :name]
+
+    # Column 2: type
+    df_output[!, :type] = df_work[!, :type]
+
+    # Column 3: investment (total investment in USD)
+    # Calculate from OCC/kW * capacity * 1000 (to convert MW to kW)
+    df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* df_work[!, :capacity_mwe] .* 1000
+
+    # Column 4: plant_capacity (in MWe)
+    df_output[!, :plant_capacity] = df_work[!, :capacity_mwe]
+
+    # Column 5: learning_factor (default 0.1 for all)
+    df_output[!, :learning_factor] = fill(0.1, nrow(df_work))
+
+    # Column 6: construction_time
+    # Use actual if available, otherwise planned, otherwise default to 3
+    if :construction_time_actual in names(df_work) && :construction_time_planned in names(df_work)
+        df_output[!, :construction_time] = coalesce.(df_work[!, :construction_time_actual],
+                                                      df_work[!, :construction_time_planned],
+                                                      3.0)
+    elseif :construction_time_planned in names(df_work)
+        df_output[!, :construction_time] = coalesce.(df_work[!, :construction_time_planned], 3.0)
+    else
+        df_output[!, :construction_time] = fill(3.0, nrow(df_work))
     end
 
-    # Sort by tech category for easier analysis
-    if :tech_category in names(df_output)
-        sort!(df_output, :tech_category)
+    # Column 7: operating_time (lifetime in years)
+    if :lifetime_years in names(df_work)
+        df_output[!, :operating_time] = coalesce.(df_work[!, :lifetime_years], 60.0)
+    else
+        df_output[!, :operating_time] = fill(60.0, nrow(df_work))
     end
+
+    # Columns 8-9: loadfactor_lower and loadfactor_upper
+    # Convert capacity factor from percentage to decimal
+    # Assume ±5% range around the given value
+    if :capacity_factor_pct in names(df_work)
+        cf_decimal = df_work[!, :capacity_factor_pct] ./ 100.0
+        df_output[!, :loadfactor_lower] = coalesce.(cf_decimal .- 0.05, 0.75)
+        df_output[!, :loadfactor_upper] = coalesce.(cf_decimal .+ 0.05, 0.85)
+        # Ensure they're in valid range [0, 1]
+        df_output[!, :loadfactor_lower] = max.(df_output[!, :loadfactor_lower], 0.0)
+        df_output[!, :loadfactor_upper] = min.(df_output[!, :loadfactor_upper], 1.0)
+    else
+        df_output[!, :loadfactor_lower] = fill(0.75, nrow(df_work))
+        df_output[!, :loadfactor_upper] = fill(0.85, nrow(df_work))
+    end
+
+    # Column 10: operating_cost_fix (fixed OPEX in USD/year)
+    # Convert from USD/MW-yr to total USD/yr by multiplying by capacity
+    if :opex_fixed_usd_per_mw_yr in names(df_work)
+        df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr] .* df_work[!, :capacity_mwe],
+                                                       df_work[!, :capacity_mwe] .* 150000)
+    else
+        df_output[!, :operating_cost_fix] = df_work[!, :capacity_mwe] .* 150000  # Default fallback
+    end
+
+    # Column 11: operating_cost_variable (USD/MWh)
+    if :opex_variable_usd_per_mwh in names(df_work)
+        df_output[!, :operating_cost_variable] = coalesce.(df_work[!, :opex_variable_usd_per_mwh], 2.3326)
+    else
+        df_output[!, :operating_cost_variable] = fill(2.3326, nrow(df_work))
+    end
+
+    # Column 12: operating_cost_fuel (USD/MWh)
+    if :fuel_usd_per_mwh in names(df_work)
+        df_output[!, :operating_cost_fuel] = coalesce.(df_work[!, :fuel_usd_per_mwh], 6.0)
+    else
+        df_output[!, :operating_cost_fuel] = fill(6.0, nrow(df_work))
+    end
+
+    # Columns 13-14: reference_pj_investment and reference_pj_capacity
+    # Based on reactor type
+    reference_investment = Float64[]
+    reference_capacity = Float64[]
+
+    for rtype in df_output[!, :type]
+        ref = get_reference_values(rtype)
+        push!(reference_investment, ref.investment)
+        push!(reference_capacity, ref.capacity)
+    end
+
+    df_output[!, :reference_pj_investment] = reference_investment
+    df_output[!, :reference_pj_capacity] = reference_capacity
 
     # Save as semicolon-delimited CSV
     CSV.write(output_csv, df_output; delim=';')
@@ -272,45 +285,27 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println("\n✓ Successfully extracted $(nrow(df_output)) reactors")
     println("✓ Saved to: $output_csv")
 
-    # Summary by tech category
-    if :tech_category in names(df_output)
-        println("\n--- Reactors by Technology Category ---")
-        println(combine(groupby(df_output, :tech_category), nrow => :count))
+    # Print summary statistics
+    println("\n--- Summary by Reactor Type ---")
+    summary_by_type = combine(groupby(df_output, :type)) do sdf
+        (
+            count = nrow(sdf),
+            avg_capacity = round(mean(sdf.plant_capacity), digits=1),
+            avg_investment_M = round(mean(sdf.investment) / 1e6, digits=2)
+        )
+    end
+    println(summary_by_type)
 
-        println("\n--- Cost Range by Category (USD/kW) ---")
-        cost_summary = combine(groupby(df_output, :tech_category)) do sdf
-            (
-                count = nrow(sdf),
-                min = minimum(skipmissing(sdf.occ_usd_per_kw)),
-                median = median(skipmissing(sdf.occ_usd_per_kw)),
-                max = maximum(skipmissing(sdf.occ_usd_per_kw))
-            )
-        end
-        println(cost_summary)
+    # Check for size distribution
+    if :size_category in names(df_work)
+        println("\n--- Summary by Size Category ---")
+        size_counts = combine(groupby(df_work, :size_category), nrow => :count)
+        println(size_counts)
     end
 
-    # Summary by size category
-    if :size_category in names(df_output)
-        println("\n--- Reactors by Size Category ---")
-        println(combine(groupby(df_output, :size_category), nrow => :count))
-    end
-
-    # Summary by reactor type
-    if :reactor_type in names(df_output)
-        println("\n--- Reactors by Type ---")
-        println(combine(groupby(df_output, :reactor_type), nrow => :count))
-    end
-
-    println("\n--- Columns in Output ---")
-    println(names(df_output))
-
-    println("\n--- Data Completeness ---")
-    for col in names(df_output)
-        missing_count = count(ismissing, df_output[!, col])
-        if missing_count > 0
-            println("$col: $missing_count missing")
-        end
-    end
+    println("\n--- First 5 reactors ---")
+    display_df = df_output[1:min(5, nrow(df_output)), [:name, :type, :plant_capacity, :investment]]
+    println(display_df)
 
     return df_output
 end
@@ -318,19 +313,22 @@ end
 
 # Main execution
 if abspath(PROGRAM_FILE) == @__FILE__
+    println("="^60)
+    println("Reactor Data Conversion Script")
+    println("="^60)
+    println("\nNote: Make sure to install required packages first:")
+    println("  julia> using Pkg")
+    println("  julia> Pkg.add(\"XLSX\")")
+    println("  julia> Pkg.add(\"DataFrames\")")
+    println("  julia> Pkg.add(\"CSV\")")
+    println("\nOr run: julia --project=. -e 'using Pkg; Pkg.instantiate()'")
+    println("="^60)
+    println()
+
     excel_file = "_input/reactor_data_raw.xlsx"
     df = extract_reactor_data(excel_file)
 
-    if !isnothing(df)
-        println("\n--- First Few Rows ---")
-        display_cols = [:name, :reactor_type, :size_category, :tech_category, :occ_usd_per_kw]
-        existing_display_cols = [col for col in display_cols if col in names(df)]
-        println(first(df[!, existing_display_cols], 10))
-
-        # Check for FOAK vs NOAK distribution
-        if :foak_noak in names(df) && :tech_category in names(df)
-            println("\n--- FOAK/NOAK Distribution by Tech Category ---")
-            println(combine(groupby(df, [:tech_category, :foak_noak]), nrow => :count))
-        end
-    end
+    println("\n✓ Conversion complete!")
+    println("Output file: _input/reactor_data.csv")
+    println("Format matches: project_data.csv structure")
 end
