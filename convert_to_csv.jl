@@ -180,14 +180,34 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
                                 !occursin(r"^Type$"i, string(row.reactor_type_raw)), df_work)
     end
 
+    # Debug: Check which columns exist before cleaning
+    println("\n--- Columns in df_work BEFORE cleaning ---")
+    println("Column names: ", names(df_work))
+    if :construction_time_planned in names(df_work)
+        println("✓ construction_time_planned exists, sample: ", df_work[1:min(3, nrow(df_work)), :construction_time_planned])
+    else
+        println("✗ construction_time_planned NOT FOUND")
+    end
+    if :lifetime_years in names(df_work)
+        println("✓ lifetime_years exists, sample: ", df_work[1:min(3, nrow(df_work)), :lifetime_years])
+    else
+        println("✗ lifetime_years NOT FOUND")
+    end
+
     # Clean numeric columns
     numeric_cols = [:capacity_mwe, :occ_usd_per_kw, :construction_time_planned,
                     :construction_time_actual, :lifetime_years, :capacity_factor_pct,
                     :opex_fixed_usd_per_mw_yr, :opex_variable_usd_per_mwh, :fuel_usd_per_mwh]
 
+    println("\n--- Cleaning numeric columns ---")
     for col in numeric_cols
         if col in names(df_work)
+            println("Cleaning column: $col")
+            before_sample = df_work[1:min(3, nrow(df_work)), col]
+            println("  Before: $before_sample (types: $(typeof.(before_sample)))")
             df_work[!, col] = clean_numeric_string.(df_work[!, col])
+            after_sample = df_work[1:min(3, nrow(df_work)), col]
+            println("  After: $after_sample (types: $(typeof.(after_sample)))")
         end
     end
 
