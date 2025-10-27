@@ -322,13 +322,12 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         df_output[!, :loadfactor_upper] = fill(0.95, nrow(df_work))
     end
 
-    # Column 11: operating_cost_fix (fixed OPEX in USD/year)
-    # Convert from USD/MW-yr to total USD/yr by multiplying by capacity
+    # Column 11: operating_cost_fix (fixed OPEX in USD/MW-yr)
+    # Keep as USD/MW-yr - simulation code multiplies by capacity
     if :opex_fixed_usd_per_mw_yr in propertynames(df_work)
-        df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr] .* df_work[!, :capacity_mwe],
-                                                       df_work[!, :capacity_mwe] .* 150000)
+        df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr], 500.0)
     else
-        df_output[!, :operating_cost_fix] = df_work[!, :capacity_mwe] .* 150000  # Default fallback
+        df_output[!, :operating_cost_fix] = fill(500.0, nrow(df_work))  # Default: 500 USD/MW-yr
     end
 
     # Column 12: operating_cost_variable (USD/MWh)
