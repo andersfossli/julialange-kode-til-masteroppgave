@@ -3,7 +3,6 @@ using DataFrames
 using CSV
 using Statistics
 
-println("Script started!")
 """
     standardize_reactor_type(reactor_type)
 
@@ -380,17 +379,11 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
 end
 
 
-# Main execution
+# Main execution - runs when script is executed directly from command line
+# Usage: julia convert_to_csv.jl
 if abspath(PROGRAM_FILE) == @__FILE__
     println("="^60)
     println("Reactor Data Conversion Script")
-    println("="^60)
-    println("\nNote: Make sure to install required packages first:")
-    println("  julia> using Pkg")
-    println("  julia> Pkg.add(\"XLSX\")")
-    println("  julia> Pkg.add(\"DataFrames\")")
-    println("  julia> Pkg.add(\"CSV\")")
-    println("\nOr run: julia --project=. -e 'using Pkg; Pkg.instantiate()'")
     println("="^60)
     println()
 
@@ -401,3 +394,7 @@ if abspath(PROGRAM_FILE) == @__FILE__
     println("Output file: _input/reactor_data.csv")
     println("Format matches: project_data.csv structure")
 end
+
+# If you're using include() from Julia REPL, call the function directly:
+# julia> include("convert_to_csv.jl")
+# julia> df = extract_reactor_data("_input/reactor_data_raw.xlsx")
