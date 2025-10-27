@@ -23,9 +23,9 @@ npv_summary = describe(npv_results, :all)
 lcoe_summary = describe(lcoe_results, :all)
 
 # output
-#CSV.write("$outputpath/mcs-npv_results-$opt_scaling.csv", npv_results);
+CSV.write("$outputpath/mcs-npv_results-$opt_scaling.csv", npv_results);
 CSV.write("$outputpath/mcs-npv_summary-$opt_scaling.csv", npv_summary[!,1:8]);
-#CSV.write("$outputpath/mcs-lcoe_results-$opt_scaling.csv", lcoe_results);
+CSV.write("$outputpath/mcs-lcoe_results-$opt_scaling.csv", lcoe_results);
 CSV.write("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", lcoe_summary[!,1:8]);
 
 ##### sensitivity analysis #####
