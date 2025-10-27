@@ -3,6 +3,7 @@ using DataFrames
 using CSV
 using Statistics
 
+println("Script started!")
 """
     standardize_reactor_type(reactor_type)
 
