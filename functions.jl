@@ -15,6 +15,7 @@ The project struct is a mutable struct that represents an investment project. It
 mutable struct project
     name::String                    # investment concept
     type::String                    # investment type
+    scale::String                   # reactor scale (Micro/SMR/Large)
     investment::Float64             # investment estimate by manufacturer [USD/MW]
     plant_capacity::Float64         # plant capacity [MW]
     learning_factor::Float64        # learning factor
@@ -53,7 +54,13 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
     # generation of uniformly distributed random project specific variables
         # scaling case distinction
             # Note that the scaling parameter here are converted such that Rothwell and Roulstone coincide.
-            if opt_scaling == "manufacturer"
+            # Special handling for Large reactors: use face value, no scaling
+            if pj.scale == "Large"
+                @info("Large reactor detected: using face value (no scaling applied)")
+                # For large reactors, use manufacturer estimates directly (no scaling)
+                # This keeps large reactor costs at their empirical values
+                rand_investment = pj.investment * pj.plant_capacity * ones(n) * (1-pj.learning_factor)
+            elseif opt_scaling == "manufacturer"
                 @info("using manufacturer estimates")
                 # deterministic investment cost based on manufacturer estimates [USD]
                 rand_investment = pj.investment * pj.plant_capacity * ones(n) * (1-pj.learning_factor)

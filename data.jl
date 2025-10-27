@@ -13,6 +13,7 @@ for i in 1:nrow(pjs_dat)
     push!(pjs,project(
         pjs_dat.name[i],
         pjs_dat.type[i],
+        pjs_dat.scale[i],
         pjs_dat.investment[i],
         pjs_dat.plant_capacity[i],
         pjs_dat.learning_factor[i],
