@@ -258,25 +258,15 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :learning_factor] = fill(0.1, nrow(df_work))
 
     # Column 6: construction_time
-    # Use actual if available, otherwise planned, otherwise default to 3
+    # Use ONLY planned construction time (ignore actual build time)
     println("\n--- Construction Time Debug ---")
     if :construction_time_planned in propertynames(df_work)
         println("construction_time_planned column exists")
         println("Sample values: ", df_work[1:min(5, nrow(df_work)), :construction_time_planned])
         println("Types: ", typeof.(df_work[1:min(5, nrow(df_work)), :construction_time_planned]))
-    end
-    if :construction_time_actual in propertynames(df_work)
-        println("construction_time_actual column exists")
-        println("Sample values: ", df_work[1:min(5, nrow(df_work)), :construction_time_actual])
-    end
-
-    if :construction_time_actual in propertynames(df_work) && :construction_time_planned in propertynames(df_work)
-        df_output[!, :construction_time] = coalesce.(df_work[!, :construction_time_actual],
-                                                      df_work[!, :construction_time_planned],
-                                                      3.0)
-    elseif :construction_time_planned in propertynames(df_work)
         df_output[!, :construction_time] = coalesce.(df_work[!, :construction_time_planned], 3.0)
     else
+        println("construction_time_planned NOT found, using default 3.0")
         df_output[!, :construction_time] = fill(3.0, nrow(df_work))
     end
     println("Final construction_time values: ", df_output[1:min(5, nrow(df_output)), :construction_time])
