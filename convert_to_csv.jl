@@ -169,6 +169,9 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_work = select(df, keys(available_cols)...)
     rename!(df_work, available_cols)
 
+    # Convert all column names to symbols for consistency
+    rename!(df_work, Symbol.(names(df_work)))
+
     # Filter out header rows that might have been included
     # Remove any row where the name or reactor_type_raw contains "Project" or "Type" (headers)
     if :name in names(df_work)
@@ -293,17 +296,18 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
 
     # Columns 8-9: loadfactor_lower and loadfactor_upper
     # Convert capacity factor from percentage to decimal
-    # Assume ±5% range around the given value
+    # If capacity factor is provided, use it; otherwise default to 90-95% range
     if :capacity_factor_pct in names(df_work)
         cf_decimal = df_work[!, :capacity_factor_pct] ./ 100.0
-        df_output[!, :loadfactor_lower] = coalesce.(cf_decimal .- 0.05, 0.75)
-        df_output[!, :loadfactor_upper] = coalesce.(cf_decimal .+ 0.05, 0.85)
+        # Use ±2.5% range around the given value, or default to 90-95%
+        df_output[!, :loadfactor_lower] = coalesce.(cf_decimal .- 0.025, 0.90)
+        df_output[!, :loadfactor_upper] = coalesce.(cf_decimal .+ 0.025, 0.95)
         # Ensure they're in valid range [0, 1]
         df_output[!, :loadfactor_lower] = max.(df_output[!, :loadfactor_lower], 0.0)
         df_output[!, :loadfactor_upper] = min.(df_output[!, :loadfactor_upper], 1.0)
     else
-        df_output[!, :loadfactor_lower] = fill(0.75, nrow(df_work))
-        df_output[!, :loadfactor_upper] = fill(0.85, nrow(df_work))
+        df_output[!, :loadfactor_lower] = fill(0.90, nrow(df_work))
+        df_output[!, :loadfactor_upper] = fill(0.95, nrow(df_work))
     end
 
     # Column 10: operating_cost_fix (fixed OPEX in USD/year)
