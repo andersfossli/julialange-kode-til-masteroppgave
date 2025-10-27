@@ -207,3 +207,84 @@ function si_plot(si_results, title::String)
     return si_heatmap
 
 end
+"""
+The lcoe_scale_histogram function creates a grouped histogram showing LCOE distributions
+by reactor scale (Micro/SMR/Large) with mean and median lines for each group.
+
+Arguments:
+- `lcoe_results::DataFrame`: DataFrame containing LCOE results from Monte Carlo simulation (one column per reactor)
+- `pjs::Vector`: Vector of project objects containing reactor information including scale
+
+Returns:
+- Figure object with grouped histograms
+"""
+function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
+
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => Int[], "SMR" => Int[], "Large" => Int[])
+
+    for (idx, pj) in enumerate(pjs)
+        if haskey(scale_groups, pj.scale)
+            push!(scale_groups[pj.scale], idx)
+        end
+    end
+
+    # Collect LCOE data for each scale group
+    lcoe_by_scale = Dict{String, Vector{Float64}}()
+
+    for (scale, indices) in scale_groups
+        if !isempty(indices)
+            # Concatenate all LCOE values for this scale
+            scale_data = Float64[]
+            for idx in indices
+                reactor_name = pjs[idx].name
+                if reactor_name in names(lcoe_results)
+                    append!(scale_data, lcoe_results[!, reactor_name])
+                end
+            end
+            lcoe_by_scale[scale] = scale_data
+        end
+    end
+
+    # Create figure
+    fig = Figure(resolution = (1200, 600))
+    ax = Axis(fig[1, 1],
+              xlabel = "LCOE [USD/MWh]",
+              ylabel = "Frequency",
+              title = "LCOE Distribution by Reactor Scale")
+
+    # Define colors for each scale
+    colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
+    alphas = Dict("Micro" => 0.5, "SMR" => 0.5, "Large" => 0.5)
+
+    # Plot histograms for each scale
+    for (scale, data) in sort(collect(lcoe_by_scale))
+        if !isempty(data)
+            hist!(ax, data,
+                  bins = 50,
+                  color = (colors[scale], alphas[scale]),
+                  strokewidth = 1,
+                  strokecolor = colors[scale],
+                  label = scale)
+
+            # Calculate and plot mean
+            mean_val = mean(data)
+            vlines!(ax, [mean_val],
+                    color = colors[scale],
+                    linestyle = :solid,
+                    linewidth = 3)
+
+            # Calculate and plot median
+            median_val = median(data)
+            vlines!(ax, [median_val],
+                    color = colors[scale],
+                    linestyle = :dash,
+                    linewidth = 3)
+        end
+    end
+
+    # Add legend
+    axislegend(ax, position = :rt, merge = true, unique = true)
+
+    return fig
+end

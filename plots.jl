@@ -146,3 +146,8 @@ Label(fig_lcoe_comparison[1, 1, Top()], "LCOE Comparison", font = "Noto Sans Bol
 
 fig_lcoe_comparison
 save("$outputpath/fig-lcoe_comparison-$opt_scaling.pdf", fig_lcoe_comparison);
+##### LCOE histogram grouped by scale (Micro/SMR/Large) #####
+# requires lcoe_results from simulation and pjs vector
+
+fig_lcoe_scale_hist = lcoe_scale_histogram(lcoe_results, pjs)
+save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_hist);
