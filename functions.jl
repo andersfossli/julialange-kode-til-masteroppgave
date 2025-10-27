@@ -43,7 +43,8 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
     @info "generating random variables"
 
     # total time of reactor project, i.e., construction and operating time
-    total_time = pj.time[1] + pj.time[2]
+    # Convert to Int since rand() requires integer dimensions
+    total_time = Int(pj.time[1] + pj.time[2])
 
     # generation of uniformly distributed random non-project specific variables
         rand_wacc = wacc[1] .+ (wacc[2]-wacc[1]) * rand(n)
