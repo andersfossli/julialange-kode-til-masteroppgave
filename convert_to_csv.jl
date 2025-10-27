@@ -152,7 +152,8 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         "OPEX fixed (USD2020/MW-yr)" => :opex_fixed_usd_per_mw_yr,
         "OPEX variable (USD2020/MWh)" => :opex_variable_usd_per_mwh,
         "Fuel (USD2020/MWh)" => :fuel_usd_per_mwh,
-        "scale" => :scale,  # New column name
+        "Scale" => :scale,  # New column name (capital S)
+        "scale" => :scale,  # New column name (lowercase s)
         "Large medium micro" => :scale,  # Old column name (backwards compatibility)
         "FOAK/NOAK*" => :foak_noak
     )
