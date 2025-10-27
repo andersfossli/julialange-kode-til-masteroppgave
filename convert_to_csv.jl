@@ -174,11 +174,11 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
 
     # Filter out header rows that might have been included
     # Remove any row where the name or reactor_type_raw contains "Project" or "Type" (headers)
-    if :name in names(df_work)
+    if :name in propertynames(df_work)
         df_work = filter(row -> !ismissing(row.name) &&
                                 !occursin(r"^Project$"i, string(row.name)), df_work)
     end
-    if :reactor_type_raw in names(df_work)
+    if :reactor_type_raw in propertynames(df_work)
         df_work = filter(row -> !ismissing(row.reactor_type_raw) &&
                                 !occursin(r"^Type$"i, string(row.reactor_type_raw)), df_work)
     end
@@ -186,12 +186,13 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     # Debug: Check which columns exist before cleaning
     println("\n--- Columns in df_work BEFORE cleaning ---")
     println("Column names: ", names(df_work))
-    if :construction_time_planned in names(df_work)
+    println("Property names (symbols): ", propertynames(df_work))
+    if :construction_time_planned in propertynames(df_work)
         println("✓ construction_time_planned exists, sample: ", df_work[1:min(3, nrow(df_work)), :construction_time_planned])
     else
         println("✗ construction_time_planned NOT FOUND")
     end
-    if :lifetime_years in names(df_work)
+    if :lifetime_years in propertynames(df_work)
         println("✓ lifetime_years exists, sample: ", df_work[1:min(3, nrow(df_work)), :lifetime_years])
     else
         println("✗ lifetime_years NOT FOUND")
@@ -204,7 +205,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
 
     println("\n--- Cleaning numeric columns ---")
     for col in numeric_cols
-        if col in names(df_work)
+        if col in propertynames(df_work)
             println("Cleaning column: $col")
             before_sample = df_work[1:min(3, nrow(df_work)), col]
             println("  Before: $before_sample (types: $(typeof.(before_sample)))")
@@ -260,21 +261,21 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     # Column 6: construction_time
     # Use actual if available, otherwise planned, otherwise default to 3
     println("\n--- Construction Time Debug ---")
-    if :construction_time_planned in names(df_work)
+    if :construction_time_planned in propertynames(df_work)
         println("construction_time_planned column exists")
         println("Sample values: ", df_work[1:min(5, nrow(df_work)), :construction_time_planned])
         println("Types: ", typeof.(df_work[1:min(5, nrow(df_work)), :construction_time_planned]))
     end
-    if :construction_time_actual in names(df_work)
+    if :construction_time_actual in propertynames(df_work)
         println("construction_time_actual column exists")
         println("Sample values: ", df_work[1:min(5, nrow(df_work)), :construction_time_actual])
     end
 
-    if :construction_time_actual in names(df_work) && :construction_time_planned in names(df_work)
+    if :construction_time_actual in propertynames(df_work) && :construction_time_planned in propertynames(df_work)
         df_output[!, :construction_time] = coalesce.(df_work[!, :construction_time_actual],
                                                       df_work[!, :construction_time_planned],
                                                       3.0)
-    elseif :construction_time_planned in names(df_work)
+    elseif :construction_time_planned in propertynames(df_work)
         df_output[!, :construction_time] = coalesce.(df_work[!, :construction_time_planned], 3.0)
     else
         df_output[!, :construction_time] = fill(3.0, nrow(df_work))
@@ -283,7 +284,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
 
     # Column 7: operating_time (lifetime in years)
     println("\n--- Operating Time Debug ---")
-    if :lifetime_years in names(df_work)
+    if :lifetime_years in propertynames(df_work)
         println("lifetime_years column exists")
         println("Sample values: ", df_work[1:min(5, nrow(df_work)), :lifetime_years])
         println("Types: ", typeof.(df_work[1:min(5, nrow(df_work)), :lifetime_years]))
@@ -297,7 +298,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     # Columns 8-9: loadfactor_lower and loadfactor_upper
     # Convert capacity factor from percentage to decimal
     # If capacity factor is provided, use it; otherwise default to 90-95% range
-    if :capacity_factor_pct in names(df_work)
+    if :capacity_factor_pct in propertynames(df_work)
         cf_decimal = df_work[!, :capacity_factor_pct] ./ 100.0
         # Use ±2.5% range around the given value, or default to 90-95%
         df_output[!, :loadfactor_lower] = coalesce.(cf_decimal .- 0.025, 0.90)
@@ -312,7 +313,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
 
     # Column 10: operating_cost_fix (fixed OPEX in USD/year)
     # Convert from USD/MW-yr to total USD/yr by multiplying by capacity
-    if :opex_fixed_usd_per_mw_yr in names(df_work)
+    if :opex_fixed_usd_per_mw_yr in propertynames(df_work)
         df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr] .* df_work[!, :capacity_mwe],
                                                        df_work[!, :capacity_mwe] .* 150000)
     else
@@ -320,14 +321,14 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
 
     # Column 11: operating_cost_variable (USD/MWh)
-    if :opex_variable_usd_per_mwh in names(df_work)
+    if :opex_variable_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_variable] = coalesce.(df_work[!, :opex_variable_usd_per_mwh], 2.3326)
     else
         df_output[!, :operating_cost_variable] = fill(2.3326, nrow(df_work))
     end
 
     # Column 12: operating_cost_fuel (USD/MWh)
-    if :fuel_usd_per_mwh in names(df_work)
+    if :fuel_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_fuel] = coalesce.(df_work[!, :fuel_usd_per_mwh], 6.0)
     else
         df_output[!, :operating_cost_fuel] = fill(6.0, nrow(df_work))
@@ -365,7 +366,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println(summary_by_type)
 
     # Check for size distribution
-    if :size_category in names(df_work)
+    if :size_category in propertynames(df_work)
         println("\n--- Summary by Size Category ---")
         size_counts = combine(groupby(df_work, :size_category), nrow => :count)
         println(size_counts)
