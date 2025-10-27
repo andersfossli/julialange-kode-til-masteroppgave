@@ -169,6 +169,17 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_work = select(df, keys(available_cols)...)
     rename!(df_work, available_cols)
 
+    # Filter out header rows that might have been included
+    # Remove any row where the name or reactor_type_raw contains "Project" or "Type" (headers)
+    if :name in names(df_work)
+        df_work = filter(row -> !ismissing(row.name) &&
+                                !occursin(r"^Project$"i, string(row.name)), df_work)
+    end
+    if :reactor_type_raw in names(df_work)
+        df_work = filter(row -> !ismissing(row.reactor_type_raw) &&
+                                !occursin(r"^Type$"i, string(row.reactor_type_raw)), df_work)
+    end
+
     # Clean numeric columns
     numeric_cols = [:capacity_mwe, :occ_usd_per_kw, :construction_time_planned,
                     :construction_time_actual, :lifetime_years, :capacity_factor_pct,
@@ -181,10 +192,24 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
 
     # Remove rows with missing critical data
+    initial_rows = nrow(df_work)
     df_work = dropmissing(df_work, [:name, :capacity_mwe, :occ_usd_per_kw])
+    println("Rows after removing missing critical data: $(nrow(df_work)) (removed $(initial_rows - nrow(df_work)))")
+
+    # Ensure numeric columns are actually numeric (filter out any that failed conversion)
+    initial_rows = nrow(df_work)
+    df_work = filter(row -> typeof(row.capacity_mwe) <: Number &&
+                           typeof(row.occ_usd_per_kw) <: Number, df_work)
+    println("Rows after ensuring numeric types: $(nrow(df_work)) (removed $(initial_rows - nrow(df_work)))")
+
+    if nrow(df_work) == 0
+        println("\n❌ ERROR: No valid data rows found after cleaning!")
+        println("Check that the Excel file has data starting from row 3")
+        return nothing
+    end
 
     # Standardize reactor types
-    println("--- Reactor Type Standardization ---")
+    println("\n--- Reactor Type Standardization ---")
     df_work[!, :type] = standardize_reactor_type.(df_work[!, :reactor_type_raw])
     println("Standardized types:")
     println(combine(groupby(df_work, :type), nrow => :count))
