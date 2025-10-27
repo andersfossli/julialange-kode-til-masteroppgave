@@ -337,6 +337,16 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :reference_pj_investment] = reference_investment
     df_output[!, :reference_pj_capacity] = reference_capacity
 
+    # Convert appropriate columns to integers (to match project_data.csv format)
+    # These columns should be whole numbers without decimals
+    df_output[!, :investment] = round.(Int, df_output[!, :investment])
+    df_output[!, :plant_capacity] = round.(Int, df_output[!, :plant_capacity])
+    df_output[!, :construction_time] = round.(Int, df_output[!, :construction_time])
+    df_output[!, :operating_time] = round.(Int, df_output[!, :operating_time])
+    df_output[!, :operating_cost_fix] = round.(Int, df_output[!, :operating_cost_fix])
+    df_output[!, :reference_pj_investment] = round.(Int, df_output[!, :reference_pj_investment])
+    df_output[!, :reference_pj_capacity] = round.(Int, df_output[!, :reference_pj_capacity])
+
     # Save as semicolon-delimited CSV
     CSV.write(output_csv, df_output; delim=';')
 
