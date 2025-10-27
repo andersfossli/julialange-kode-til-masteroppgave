@@ -152,7 +152,8 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         "OPEX fixed (USD2020/MW-yr)" => :opex_fixed_usd_per_mw_yr,
         "OPEX variable (USD2020/MWh)" => :opex_variable_usd_per_mwh,
         "Fuel (USD2020/MWh)" => :fuel_usd_per_mwh,
-        "Large medium micro" => :size_category,
+        "scale" => :scale,  # New column name
+        "Large medium micro" => :scale,  # Old column name (backwards compatibility)
         "FOAK/NOAK*" => :foak_noak
     )
 
@@ -247,17 +248,36 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     # Column 2: type
     df_output[!, :type] = df_work[!, :type]
 
-    # Column 3: investment (total investment in USD)
+    # Column 3: scale (micro/SMR/large)
+    if :scale in propertynames(df_work)
+        df_output[!, :scale] = df_work[!, :scale]
+    else
+        # If scale column not found, try to infer from capacity
+        println("Warning: scale column not found, inferring from capacity")
+        df_output[!, :scale] = map(df_work[!, :capacity_mwe]) do cap
+            if ismissing(cap)
+                return "Unknown"
+            elseif cap < 50
+                return "Micro"
+            elseif cap <= 300
+                return "SMR"
+            else
+                return "Large"
+            end
+        end
+    end
+
+    # Column 4: investment (total investment in USD)
     # Calculate from OCC/kW * capacity * 1000 (to convert MW to kW)
     df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* df_work[!, :capacity_mwe] .* 1000
 
-    # Column 4: plant_capacity (in MWe)
+    # Column 5: plant_capacity (in MWe)
     df_output[!, :plant_capacity] = df_work[!, :capacity_mwe]
 
-    # Column 5: learning_factor (default 0.1 for all)
+    # Column 6: learning_factor (default 0.1 for all)
     df_output[!, :learning_factor] = fill(0.1, nrow(df_work))
 
-    # Column 6: construction_time
+    # Column 7: construction_time
     # Use ONLY planned construction time (ignore actual build time)
     println("\n--- Construction Time Debug ---")
     if :construction_time_planned in propertynames(df_work)
@@ -271,7 +291,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
     println("Final construction_time values: ", df_output[1:min(5, nrow(df_output)), :construction_time])
 
-    # Column 7: operating_time (lifetime in years)
+    # Column 8: operating_time (lifetime in years)
     println("\n--- Operating Time Debug ---")
     if :lifetime_years in propertynames(df_work)
         println("lifetime_years column exists")
@@ -284,7 +304,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
     println("Final operating_time values: ", df_output[1:min(5, nrow(df_output)), :operating_time])
 
-    # Columns 8-9: loadfactor_lower and loadfactor_upper
+    # Columns 9-10: loadfactor_lower and loadfactor_upper
     # Convert capacity factor from percentage to decimal
     # If capacity factor is provided, use it; otherwise default to 90-95% range
     if :capacity_factor_pct in propertynames(df_work)
@@ -300,7 +320,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         df_output[!, :loadfactor_upper] = fill(0.95, nrow(df_work))
     end
 
-    # Column 10: operating_cost_fix (fixed OPEX in USD/year)
+    # Column 11: operating_cost_fix (fixed OPEX in USD/year)
     # Convert from USD/MW-yr to total USD/yr by multiplying by capacity
     if :opex_fixed_usd_per_mw_yr in propertynames(df_work)
         df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr] .* df_work[!, :capacity_mwe],
@@ -309,21 +329,21 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         df_output[!, :operating_cost_fix] = df_work[!, :capacity_mwe] .* 150000  # Default fallback
     end
 
-    # Column 11: operating_cost_variable (USD/MWh)
+    # Column 12: operating_cost_variable (USD/MWh)
     if :opex_variable_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_variable] = coalesce.(df_work[!, :opex_variable_usd_per_mwh], 2.3326)
     else
         df_output[!, :operating_cost_variable] = fill(2.3326, nrow(df_work))
     end
 
-    # Column 12: operating_cost_fuel (USD/MWh)
+    # Column 13: operating_cost_fuel (USD/MWh)
     if :fuel_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_fuel] = coalesce.(df_work[!, :fuel_usd_per_mwh], 6.0)
     else
         df_output[!, :operating_cost_fuel] = fill(6.0, nrow(df_work))
     end
 
-    # Columns 13-14: reference_pj_investment and reference_pj_capacity
+    # Columns 14-15: reference_pj_investment and reference_pj_capacity
     # Based on reactor type
     reference_investment = Float64[]
     reference_capacity = Float64[]
@@ -364,15 +384,21 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
     println(summary_by_type)
 
-    # Check for size distribution
-    if :size_category in propertynames(df_work)
-        println("\n--- Summary by Size Category ---")
-        size_counts = combine(groupby(df_work, :size_category), nrow => :count)
-        println(size_counts)
+    # Summary by scale (micro/SMR/large)
+    if :scale in propertynames(df_output)
+        println("\n--- Summary by Scale (Micro/SMR/Large) ---")
+        scale_summary = combine(groupby(df_output, :scale)) do sdf
+            (
+                count = nrow(sdf),
+                avg_capacity = round(mean(sdf.plant_capacity), digits=1),
+                avg_investment_M = round(mean(sdf.investment) / 1e6, digits=2)
+            )
+        end
+        println(scale_summary)
     end
 
     println("\n--- First 5 reactors ---")
-    display_df = df_output[1:min(5, nrow(df_output)), [:name, :type, :plant_capacity, :investment]]
+    display_df = df_output[1:min(5, nrow(df_output)), [:name, :type, :scale, :plant_capacity, :investment]]
     println(display_df)
 
     return df_output
