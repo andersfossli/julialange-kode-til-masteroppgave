@@ -3,7 +3,8 @@
 using CSV, DataFrames
 
 # read project data from CSV into a dataframe
-pjs_dat = CSV.File("$inputpath/project_data.csv") |> DataFrame
+# Using reactor_data.csv (converted from reactor_data_raw.xlsx)
+pjs_dat = CSV.File("$inputpath/reactor_data.csv") |> DataFrame
 # initialize empty projects vector
 pjs = []
 
