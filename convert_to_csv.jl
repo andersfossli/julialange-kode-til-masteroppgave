@@ -268,9 +268,10 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         end
     end
 
-    # Column 4: investment (total investment in USD)
-    # Calculate from OCC/kW * capacity * 1000 (to convert MW to kW)
-    df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* df_work[!, :capacity_mwe] .* 1000
+    # Column 4: investment (investment cost in USD/MW)
+    # Convert OCC from USD/kW to USD/MW (multiply by 1000)
+    # Note: Simulation code multiplies this by plant_capacity to get total investment
+    df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* 1000
 
     # Column 5: plant_capacity (in MWe)
     df_output[!, :plant_capacity] = df_work[!, :capacity_mwe]
@@ -380,7 +381,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         (
             count = nrow(sdf),
             avg_capacity = round(mean(sdf.plant_capacity), digits=1),
-            avg_investment_M = round(mean(sdf.investment) / 1e6, digits=2)
+            avg_investment_per_MW = round(mean(sdf.investment) / 1000, digits=0)  # in thousands USD/MW
         )
     end
     println(summary_by_type)
@@ -392,7 +393,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
             (
                 count = nrow(sdf),
                 avg_capacity = round(mean(sdf.plant_capacity), digits=1),
-                avg_investment_M = round(mean(sdf.investment) / 1e6, digits=2)
+                avg_investment_per_MW = round(mean(sdf.investment) / 1000, digits=0)  # in thousands USD/MW
             )
         end
         println(scale_summary)
