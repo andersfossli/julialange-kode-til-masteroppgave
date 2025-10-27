@@ -208,7 +208,7 @@ function si_plot(si_results, title::String)
 
 end
 """
-The lcoe_scale_histogram function creates a grouped histogram showing LCOE distributions
+The lcoe_scale_histogram function creates three separate histograms showing LCOE distributions
 by reactor scale (Micro/SMR/Large) with mean and median lines for each group.
 
 Arguments:
@@ -216,7 +216,7 @@ Arguments:
 - `pjs::Vector`: Vector of project objects containing reactor information including scale
 
 Returns:
-- Figure object with grouped histograms
+- Figure object with three subplots (one per scale)
 """
 function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
 
@@ -246,45 +246,57 @@ function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
         end
     end
 
-    # Create figure
-    fig = Figure(resolution = (1200, 600))
-    ax = Axis(fig[1, 1],
-              xlabel = "LCOE [USD/MWh]",
-              ylabel = "Frequency",
-              title = "LCOE Distribution by Reactor Scale")
+    # Create figure with 3 subplots (1 row, 3 columns)
+    fig = Figure(resolution = (1800, 500))
 
     # Define colors for each scale
     colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
-    alphas = Dict("Micro" => 0.5, "SMR" => 0.5, "Large" => 0.5)
 
-    # Plot histograms for each scale
-    for (scale, data) in sort(collect(lcoe_by_scale))
-        if !isempty(data)
+    # Define scale order and column positions
+    scale_order = ["Micro", "SMR", "Large"]
+
+    for (col_idx, scale) in enumerate(scale_order)
+        if haskey(lcoe_by_scale, scale) && !isempty(lcoe_by_scale[scale])
+            data = lcoe_by_scale[scale]
+
+            # Create axis for this subplot
+            ax = Axis(fig[1, col_idx],
+                      xlabel = "LCOE [USD/MWh]",
+                      ylabel = "Probability Density",
+                      title = "$scale Reactors")
+
+            # Plot histogram with probability density normalization
             hist!(ax, data,
                   bins = 50,
-                  color = (colors[scale], alphas[scale]),
+                  normalization = :pdf,  # Probability density function
+                  color = (colors[scale], 0.6),
                   strokewidth = 1,
-                  strokecolor = colors[scale],
-                  label = scale)
+                  strokecolor = colors[scale])
 
             # Calculate and plot mean
             mean_val = mean(data)
             vlines!(ax, [mean_val],
-                    color = colors[scale],
+                    color = :black,
                     linestyle = :solid,
-                    linewidth = 3)
+                    linewidth = 2,
+                    label = "Mean: $(round(mean_val, digits=1))")
 
             # Calculate and plot median
             median_val = median(data)
             vlines!(ax, [median_val],
-                    color = colors[scale],
+                    color = :black,
                     linestyle = :dash,
-                    linewidth = 3)
+                    linewidth = 2,
+                    label = "Median: $(round(median_val, digits=1))")
+
+            # Add legend
+            axislegend(ax, position = :rt)
         end
     end
 
-    # Add legend
-    axislegend(ax, position = :rt, merge = true, unique = true)
+    # Add overall title
+    Label(fig[0, :], "LCOE Distribution by Reactor Scale",
+          fontsize = 20, font = "Noto Sans Bold")
 
     return fig
 end
