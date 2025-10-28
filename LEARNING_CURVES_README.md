@@ -73,21 +73,32 @@ gen_rand_vars(opt_scaling, n, wacc, electricity_price, pj;
 
 This script runs multiple learning scenarios in one execution:
 
-**Predefined scenarios:**
-1. **Baseline** (N=1, no learning): Reference case
-2. **LR10_N1_k120**: FOAK with 20% premium, LR=10%
-3. **LR10_N2_k120**: 2nd unit, ~8% premium
-4. **LR10_N4_k120**: 4th unit, reaches SOAK floor
-5. **LR10_N6_k120**: 6th unit, at SOAK
+**Default scenarios (simplified):**
+1. **baseline**: No learning applied (reference case)
+2. **FOAK**: First-Of-A-Kind with 20% premium (N=1, LR=10%, κ=1.20)
+3. **SOAK**: Standard-Of-A-Kind after learning (N=4, reaches baseline)
+
+**Output file count:** 6 files total (3 scenarios × 2 files each)
 
 **Usage:**
 ```bash
 julia smr-mcs-learning.jl
 ```
 
-**Output files:**
-- `mcs-lcoe_results-{scaling}-{tag}.csv`: Full Monte Carlo results
-- `mcs-lcoe_summary-{scaling}-{tag}.csv`: Summary statistics
+**Configuration options in script:**
+```julia
+# Set to true to also save NPV files (creates 12 files instead of 6)
+save_npv_files = false  # Default: only LCOE files
+
+# Uncomment extended scenarios for full learning curve (creates 24 files)
+# learning_cases = [baseline, N1, N2, N4, N6, N8]
+```
+
+**Output files (default):**
+- `mcs-lcoe_results-{scaling}-{tag}.csv`: Full Monte Carlo LCOE results
+- `mcs-lcoe_summary-{scaling}-{tag}.csv`: LCOE summary statistics
+
+**Additional files (if save_npv_files=true):**
 - `mcs-npv_results-{scaling}-{tag}.csv`: NPV results
 - `mcs-npv_summary-{scaling}-{tag}.csv`: NPV summary
 
@@ -100,8 +111,12 @@ Two new plotting functions:
 Plot mean LCOE vs. N for learning scenarios:
 
 ```julia
-learning_scenarios = [(1, "LR10_N1_k120"), (2, "LR10_N2_k120"),
-                      (4, "LR10_N4_k120"), (6, "LR10_N6_k120")]
+# Default scenarios (3 cases)
+learning_scenarios = [(1, "baseline"), (1, "FOAK"), (4, "SOAK")]
+
+# Or extended scenarios (if you uncommented them in smr-mcs-learning.jl)
+# learning_scenarios = [(1, "baseline"), (1, "LR10_N1_k120"), (2, "LR10_N2_k120"),
+#                       (4, "LR10_N4_k120"), (6, "LR10_N6_k120"), (8, "LR10_N8_k120")]
 
 fig = learning_curve_plot("_output", "roulstone", learning_scenarios)
 save("_output/fig-learning_curve.pdf", fig)
@@ -139,13 +154,11 @@ This generates CSV files for each scenario in `_output/`.
 include("functions_plots.jl")
 include("data.jl")  # For pjs vector
 
-# Define scenarios to plot
+# Define scenarios to plot (matching what you ran in smr-mcs-learning.jl)
 learning_scenarios = [
     (1, "baseline"),
-    (1, "LR10_N1_k120"),
-    (2, "LR10_N2_k120"),
-    (4, "LR10_N4_k120"),
-    (6, "LR10_N6_k120")
+    (1, "FOAK"),
+    (4, "SOAK")
 ]
 
 # Overall learning curve
