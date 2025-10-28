@@ -98,8 +98,8 @@ for (applyL, Nunit, LR, kappa, floor_m, tag) in learning_cases
     @info("=" ^ 80)
 
     # Initialize result variables for this scenario
-    npv_results = DataFrame()
-    lcoe_results = DataFrame()
+    local npv_results = DataFrame()
+    local lcoe_results = DataFrame()
 
     # Run simulation for all projects
     for p in eachindex(pjs)
@@ -125,7 +125,7 @@ for (applyL, Nunit, LR, kappa, floor_m, tag) in learning_cases
     end
 
     # Calculate summary statistics
-    lcoe_summary = describe(lcoe_results, :all)
+    local lcoe_summary = describe(lcoe_results, :all)
 
     # Save LCOE outputs (always)
     CSV.write("$outputpath/mcs-lcoe_results-$opt_scaling-$tag.csv", lcoe_results)
@@ -133,7 +133,7 @@ for (applyL, Nunit, LR, kappa, floor_m, tag) in learning_cases
 
     # Save NPV outputs (optional - controlled by save_npv_files flag)
     if save_npv_files
-        npv_summary = describe(npv_results, :all)
+        local npv_summary = describe(npv_results, :all)
         CSV.write("$outputpath/mcs-npv_results-$opt_scaling-$tag.csv", npv_results)
         CSV.write("$outputpath/mcs-npv_summary-$opt_scaling-$tag.csv", npv_summary[!,1:8])
         @info("Saved LCOE and NPV results for scenario: $tag")
