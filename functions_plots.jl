@@ -300,3 +300,218 @@ function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
 
     return fig
 end
+
+"""
+    learning_curve_plot(outputpath::String, opt_scaling::String, learning_scenarios::Vector;
+                        reactor_name::Union{Nothing,String}=nothing, scale_filter::Union{Nothing,String}=nothing)
+
+Create a plot showing mean LCOE vs. number of units (N) for different learning scenarios.
+
+# Arguments
+- `outputpath::String`: Path to directory containing CSV output files
+- `opt_scaling::String`: Scaling method used (e.g., "roulstone", "manufacturer")
+- `learning_scenarios::Vector`: Vector of tuples (N_unit, tag) matching the scenarios run
+- `reactor_name::Union{Nothing,String}=nothing`: Optional specific reactor to plot (default: average across all)
+- `scale_filter::Union{Nothing,String}=nothing`: Optional filter by scale ("Micro", "SMR", "Large")
+
+# Returns
+- Figure object with learning curve plot
+
+# Example
+```julia
+learning_scenarios = [(1, "LR10_N1_k120"), (2, "LR10_N2_k120"), (4, "LR10_N4_k120"), (6, "LR10_N6_k120")]
+fig = learning_curve_plot("_output", "roulstone", learning_scenarios)
+save("_output/fig-learning_curve.pdf", fig)
+```
+"""
+function learning_curve_plot(outputpath::String, opt_scaling::String, learning_scenarios::Vector;
+                             reactor_name::Union{Nothing,String}=nothing,
+                             scale_filter::Union{Nothing,String}=nothing)
+
+    # Collect mean LCOE for each scenario
+    N_values = Int[]
+    mean_lcoe = Float64[]
+    scenario_labels = String[]
+
+    for (N_unit, tag) in learning_scenarios
+        # Read LCOE summary for this scenario
+        summary_file = "$outputpath/mcs-lcoe_summary-$opt_scaling-$tag.csv"
+
+        if !isfile(summary_file)
+            @warn("File not found: $summary_file, skipping scenario N=$N_unit")
+            continue
+        end
+
+        df_summary = CSV.File(summary_file) |> DataFrame
+
+        # Calculate mean LCOE across reactors (or for specific reactor)
+        if isnothing(reactor_name)
+            # Average across all reactors
+            mean_col = df_summary[df_summary.variable .== "mean", :]
+            # Get all numeric columns (skip 'variable' column)
+            numeric_cols = names(mean_col)[2:end]
+
+            # Apply scale filter if specified
+            if !isnothing(scale_filter)
+                # Read reactor data to get scale information
+                # This is a simplified approach - you may need to adjust based on your data structure
+                numeric_cols = filter(col -> occursin(scale_filter, col), numeric_cols)
+            end
+
+            mean_values = [mean_col[1, col] for col in numeric_cols if !ismissing(mean_col[1, col])]
+            lcoe_mean = mean(mean_values)
+        else
+            # Specific reactor
+            if !(reactor_name in names(df_summary))
+                @warn("Reactor '$reactor_name' not found in $summary_file")
+                continue
+            end
+            mean_row = df_summary[df_summary.variable .== "mean", :]
+            lcoe_mean = mean_row[1, reactor_name]
+        end
+
+        push!(N_values, N_unit)
+        push!(mean_lcoe, lcoe_mean)
+        push!(scenario_labels, tag)
+    end
+
+    # Sort by N_values
+    sort_idx = sortperm(N_values)
+    N_values = N_values[sort_idx]
+    mean_lcoe = mean_lcoe[sort_idx]
+    scenario_labels = scenario_labels[sort_idx]
+
+    # Create plot
+    fig = Figure(resolution = (800, 600))
+    ax = Axis(fig[1, 1],
+              xlabel = "Number of Units Built (N)",
+              ylabel = "Mean LCOE [USD/MWh]",
+              title = isnothing(reactor_name) ? "Learning Curve: Mean LCOE vs Experience" : "Learning Curve: $reactor_name")
+
+    # Plot line
+    lines!(ax, N_values, mean_lcoe, color = :blue, linewidth = 3, label = "Mean LCOE")
+
+    # Plot markers
+    scatter!(ax, N_values, mean_lcoe, color = :blue, markersize = 15, marker = :circle)
+
+    # Add text labels for each point
+    for (i, (n, lcoe, label)) in enumerate(zip(N_values, mean_lcoe, scenario_labels))
+        text!(ax, n, lcoe,
+              text = "  $(round(lcoe, digits=1))",
+              align = (:left, :center),
+              fontsize = 12)
+    end
+
+    # Add legend
+    axislegend(ax, position = :rt)
+
+    # Add grid
+    ax.xgridvisible = true
+    ax.ygridvisible = true
+
+    return fig
+end
+
+"""
+    learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
+                                   learning_scenarios::Vector, pjs::Vector)
+
+Create a multi-panel plot comparing learning curves for different reactor scales.
+
+# Arguments
+- `outputpath::String`: Path to directory containing CSV output files
+- `opt_scaling::String`: Scaling method used
+- `learning_scenarios::Vector`: Vector of tuples (N_unit, tag)
+- `pjs::Vector`: Vector of project structs (to get scale information)
+
+# Returns
+- Figure object with comparison plot
+"""
+function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
+                                       learning_scenarios::Vector, pjs::Vector)
+
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => String[], "SMR" => String[], "Large" => String[])
+
+    for pj in pjs
+        if haskey(scale_groups, pj.scale)
+            push!(scale_groups[pj.scale], pj.name)
+        end
+    end
+
+    # Create figure with 3 subplots
+    fig = Figure(resolution = (1800, 500))
+
+    scale_order = ["Micro", "SMR", "Large"]
+    colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
+
+    for (col_idx, scale) in enumerate(scale_order)
+        if isempty(scale_groups[scale])
+            continue
+        end
+
+        ax = Axis(fig[1, col_idx],
+                  xlabel = "Number of Units Built (N)",
+                  ylabel = "Mean LCOE [USD/MWh]",
+                  title = "$scale Reactors - Learning Curve")
+
+        # Collect data for this scale
+        N_values = Int[]
+        mean_lcoe = Float64[]
+
+        for (N_unit, tag) in learning_scenarios
+            summary_file = "$outputpath/mcs-lcoe_summary-$opt_scaling-$tag.csv"
+
+            if !isfile(summary_file)
+                continue
+            end
+
+            df_summary = CSV.File(summary_file) |> DataFrame
+
+            # Calculate mean across reactors in this scale
+            mean_row = df_summary[df_summary.variable .== "mean", :]
+            scale_reactors = scale_groups[scale]
+
+            # Filter to only reactors in this scale that exist in the data
+            available_reactors = filter(r -> r in names(mean_row), scale_reactors)
+
+            if isempty(available_reactors)
+                continue
+            end
+
+            mean_values = [mean_row[1, col] for col in available_reactors if !ismissing(mean_row[1, col])]
+            lcoe_mean = mean(mean_values)
+
+            push!(N_values, N_unit)
+            push!(mean_lcoe, lcoe_mean)
+        end
+
+        # Sort by N
+        if !isempty(N_values)
+            sort_idx = sortperm(N_values)
+            N_values = N_values[sort_idx]
+            mean_lcoe = mean_lcoe[sort_idx]
+
+            # Plot
+            lines!(ax, N_values, mean_lcoe, color = colors[scale], linewidth = 3)
+            scatter!(ax, N_values, mean_lcoe, color = colors[scale], markersize = 15)
+
+            # Add value labels
+            for (n, lcoe) in zip(N_values, mean_lcoe)
+                text!(ax, n, lcoe,
+                      text = "  $(round(lcoe, digits=1))",
+                      align = (:left, :center),
+                      fontsize = 10)
+            end
+        end
+
+        ax.xgridvisible = true
+        ax.ygridvisible = true
+    end
+
+    # Add overall title
+    Label(fig[0, :], "Learning Curves by Reactor Scale",
+          fontsize = 20, font = "Noto Sans Bold")
+
+    return fig
+end

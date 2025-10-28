@@ -28,6 +28,32 @@ end
 ##### defining functions #####
 
 """
+    learning_multiplier(N::Int, LR::Float64; kappa::Float64=1.0, floor::Union{Nothing,Float64}=nothing)
+
+Calculate the learning curve multiplier for cost reduction based on number of units built.
+
+# Arguments
+- `N::Int`: Number of units built (experience level)
+- `LR::Float64`: Learning rate (e.g., 0.10 for 10% cost reduction per doubling)
+- `kappa::Float64=1.0`: FOAK premium multiplier (e.g., 1.20 = 20% premium above SOAK)
+- `floor::Union{Nothing,Float64}=nothing`: Optional floor to prevent going below a minimum value
+
+# Returns
+- Multiplier to apply to investment cost (1.0 = SOAK baseline)
+
+# Examples
+```julia
+learning_multiplier(1, 0.10, kappa=1.20)  # FOAK: 1.20 (20% premium)
+learning_multiplier(2, 0.10, kappa=1.20)  # Second unit: ~1.08
+learning_multiplier(4, 0.10, kappa=1.20, floor=1.0)  # Fourth unit: 1.00 (hits SOAK floor)
+```
+"""
+function learning_multiplier(N::Int, LR::Float64; kappa::Float64=1.0, floor::Union{Nothing,Float64}=nothing)
+    m = kappa * (1.0 - LR)^(log2(N))
+    return isnothing(floor) ? m : max(m, floor)
+end
+
+"""
 The gen_rand_vars function generates random variables for a given investment project, pj, based on a specified scaling option, opt_scaling, the number of simulations to run, n, a range of weighted average cost of capital (WACC) values, wacc, and a range of electricity price values, electricity_price.
 The total time of the reactor project, which is the sum of the construction time and operating time, is calculated by adding the elements at index 1 and 2 of the pj.time vector.
 Next, the function generates uniformly distributed random variables for the WACC, electricity price, and load factor using the rand function. The range of values for each variable is determined by the input ranges of wacc and electricity_price, and the pj.loadfactor attribute.
@@ -39,7 +65,8 @@ The function then generates random project-specific variables based on the opt_s
     If the opt_scaling is not one of the above, the function print an error message, "Option for the scaling method is unknown."
 Finally, the function returns the generated random variables in the form of a named tuple with four fields: wacc, electricity_price, loadfactor, and investment and their corresponding values.
 """
-function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_price::Vector, pj::project)
+function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_price::Vector, pj::project;
+                       apply_learning::Bool=false, N_unit::Int=1, LR::Float64=0.0, kappa::Float64=1.0, floor_m::Union{Nothing,Float64}=nothing)
 
     @info "generating random variables"
 
@@ -82,6 +109,15 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
             else
                 @error("Option for the scaling method is unknown.")
             end
+
+    # Apply learning curve multiplier (if requested)
+    # Note: By default, learning is not applied to Large reactors (only SMR/Micro)
+    # since learning-by-duplication is based on factory/serial build rationale
+    if apply_learning && (pj.scale != "Large")
+        m = learning_multiplier(N_unit, LR; kappa=kappa, floor=floor_m)
+        @info("Applying learning curve: N=$N_unit, LR=$LR, κ=$kappa, floor=$floor_m → multiplier=$m")
+        rand_investment .*= m
+    end
 
     # output
     return(wacc = rand_wacc, electricity_price = rand_electricity_price, loadfactor = rand_loadfactor, investment = rand_investment)
