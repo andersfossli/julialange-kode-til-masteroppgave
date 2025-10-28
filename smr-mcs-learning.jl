@@ -56,35 +56,36 @@ save_npv_files = false  # Default: only save LCOE to reduce clutter
 # - floor_m: minimum multiplier (e.g., 1.0 = SOAK baseline), use nothing for no floor
 # - tag: label for output files
 
-# Simplified default scenarios (3 cases: baseline, FOAK, SOAK)
-# This produces 6 files total (3 scenarios × 2 files each)
+# Default scenarios: baseline + learning curve progression
+# This produces 12 files (6 scenarios × 2 LCOE files each)
 learning_cases = [
-    # Baseline: no learning applied (reference case)
-    (false, 1, 0.0, 1.0, nothing, "baseline"),
+    # Baseline: no learning applied (reference SOAK case)
+    (false, 1, 0.00, 1.00, nothing,  "baseline"),
 
-    # FOAK: First unit with 20% premium
-    (true,  1, 0.10, 1.20, 1.0, "FOAK"),
-
-    # SOAK: Fourth unit (learned down to baseline)
-    (true,  4, 0.10, 1.20, 1.0, "SOAK"),
+    # Learning curve with LR=10%, FOAK premium κ=1.20 (20% above SOAK), floor at 1.0 (SOAK)
+    (true,  1, 0.10, 1.20, 1.00,   "LR10_N1_k120"),    # FOAK: 20% premium
+    (true,  2, 0.10, 1.20, 1.00,   "LR10_N2_k120"),    # 2nd unit: ~8% premium
+    (true,  4, 0.10, 1.20, 1.00,   "LR10_N4_k120"),    # 4th unit: hits SOAK floor
+    (true,  6, 0.10, 1.20, 1.00,   "LR10_N6_k120"),    # 6th unit: at SOAK
+    (true, 12, 0.10, 1.20, 1.00,   "LR10_N12_k120"),   # 12th unit: at SOAK
 ]
 
-# Extended scenarios - uncomment to run full learning curve analysis
-# WARNING: This will create 24 files (6 scenarios × 4 files each)
+# Alternative: Higher learning rate scenarios (LR=15%)
+# Uncomment to explore more aggressive learning
 # learning_cases = [
-#     (false, 1, 0.0, 1.0, nothing, "baseline"),
-#     (true,  1, 0.10, 1.20, 1.0, "LR10_N1_k120"),    # FOAK: 20% premium
-#     (true,  2, 0.10, 1.20, 1.0, "LR10_N2_k120"),    # 2nd unit: ~8% premium
-#     (true,  4, 0.10, 1.20, 1.0, "LR10_N4_k120"),    # 4th unit: hits SOAK floor
-#     (true,  6, 0.10, 1.20, 1.0, "LR10_N6_k120"),    # 6th unit: at SOAK
-#     (true,  8, 0.10, 1.20, 1.0, "LR10_N8_k120"),    # 8th unit: at SOAK
+#     (false, 1, 0.00, 1.00, nothing, "baseline"),
+#     (true,  1, 0.15, 1.20, 1.00, "LR15_N1_k120"),
+#     (true,  2, 0.15, 1.20, 1.00, "LR15_N2_k120"),
+#     (true,  4, 0.15, 1.20, 1.00, "LR15_N4_k120"),
+#     (true,  6, 0.15, 1.20, 1.00, "LR15_N6_k120"),
+#     (true, 12, 0.15, 1.20, 1.00, "LR15_N12_k120"),
 # ]
 
-# Alternative: Higher learning rate scenarios (LR=15%)
+# Simplified scenarios (if you want fewer files - 6 total)
 # learning_cases = [
 #     (false, 1, 0.0, 1.0, nothing, "baseline"),
-#     (true,  1, 0.15, 1.20, 1.0, "LR15_FOAK"),
-#     (true,  4, 0.15, 1.20, 1.0, "LR15_SOAK"),
+#     (true,  1, 0.10, 1.20, 1.0, "FOAK"),
+#     (true,  4, 0.10, 1.20, 1.0, "SOAK"),
 # ]
 
 @info("Running $(length(learning_cases)) learning scenarios")

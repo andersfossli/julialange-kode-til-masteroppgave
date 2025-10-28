@@ -151,3 +151,36 @@ save("$outputpath/fig-lcoe_comparison-$opt_scaling.pdf", fig_lcoe_comparison);
 
 fig_lcoe_scale_hist = lcoe_scale_histogram(lcoe_results, pjs)
 save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_hist);
+
+##### Learning curve plots #####
+# Requires learning scenario files from smr-mcs-learning.jl
+# These plots are only generated if the learning CSV files exist
+
+# Define learning scenarios to plot (matching smr-mcs-learning.jl)
+learning_scenarios = [
+    (1, "baseline"),
+    (1, "LR10_N1_k120"),
+    (2, "LR10_N2_k120"),
+    (4, "LR10_N4_k120"),
+    (6, "LR10_N6_k120"),
+    (12, "LR10_N12_k120")
+]
+
+# Check if at least the baseline learning file exists
+baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling-baseline.csv"
+if isfile(baseline_file)
+    @info("Learning scenario files found - generating learning curve plots")
+
+    # Overall learning curve (all reactors averaged by scale)
+    fig_learning_comparison = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios, pjs)
+    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling.pdf", fig_learning_comparison)
+
+    # Single overall learning curve (averaged across all reactors)
+    fig_learning_overall = learning_curve_plot(outputpath, opt_scaling, learning_scenarios)
+    save("$outputpath/fig-learning_curve_overall-$opt_scaling.pdf", fig_learning_overall)
+
+    @info("Learning curve plots saved")
+else
+    @info("Learning scenario files not found - skipping learning curve plots")
+    @info("Run smr-mcs-learning.jl first to generate learning scenario data")
+end
