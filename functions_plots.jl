@@ -247,7 +247,7 @@ function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
     end
 
     # Create figure with 3 subplots (1 row, 3 columns)
-    fig = Figure(resolution = (1800, 500))
+    fig = Figure(size = (1800, 500))
 
     # Define colors for each scale
     colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
@@ -347,27 +347,34 @@ function learning_curve_plot(outputpath::String, opt_scaling::String, learning_s
         # Calculate mean LCOE across reactors (or for specific reactor)
         if isnothing(reactor_name)
             # Average across all reactors
-            mean_col = df_summary[df_summary.variable .== "mean", :]
-            # Get all numeric columns (skip 'variable' column)
-            numeric_cols = names(mean_col)[2:end]
+            # In describe() output: each row is a reactor, "mean" is a column
+            if !("mean" in names(df_summary))
+                @warn("'mean' column not found in $summary_file, skipping scenario N=$N_unit")
+                continue
+            end
 
             # Apply scale filter if specified
             if !isnothing(scale_filter)
-                # Read reactor data to get scale information
-                # This is a simplified approach - you may need to adjust based on your data structure
-                numeric_cols = filter(col -> occursin(scale_filter, col), numeric_cols)
+                # Filter rows by reactor names that match the scale
+                # This is a simplified approach - you may need reactor metadata
+                df_summary = filter(row -> occursin(scale_filter, string(row.variable)), df_summary)
             end
 
-            mean_values = [mean_col[1, col] for col in numeric_cols if !ismissing(mean_col[1, col])]
+            # Get mean values for all reactors (skip missing values)
+            mean_values = filter(!ismissing, df_summary[!, :mean])
+            if isempty(mean_values)
+                @warn("No valid mean values found in $summary_file")
+                continue
+            end
             lcoe_mean = mean(mean_values)
         else
-            # Specific reactor
-            if !(reactor_name in names(df_summary))
+            # Specific reactor - find the row for this reactor
+            reactor_row = filter(row -> row.variable == reactor_name, df_summary)
+            if nrow(reactor_row) == 0
                 @warn("Reactor '$reactor_name' not found in $summary_file")
                 continue
             end
-            mean_row = df_summary[df_summary.variable .== "mean", :]
-            lcoe_mean = mean_row[1, reactor_name]
+            lcoe_mean = reactor_row[1, :mean]
         end
 
         push!(N_values, N_unit)
@@ -382,7 +389,7 @@ function learning_curve_plot(outputpath::String, opt_scaling::String, learning_s
     scenario_labels = scenario_labels[sort_idx]
 
     # Create plot
-    fig = Figure(resolution = (800, 600))
+    fig = Figure(size = (800, 600))
     ax = Axis(fig[1, 1],
               xlabel = "Number of Units Built (N)",
               ylabel = "Mean LCOE [USD/MWh]",
@@ -469,17 +476,25 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
             df_summary = CSV.File(summary_file) |> DataFrame
 
             # Calculate mean across reactors in this scale
-            mean_row = df_summary[df_summary.variable .== "mean", :]
-            scale_reactors = scale_groups[scale]
-
-            # Filter to only reactors in this scale that exist in the data
-            available_reactors = filter(r -> r in names(mean_row), scale_reactors)
-
-            if isempty(available_reactors)
+            # In describe() output: each row is a reactor (variable column), "mean" is a column
+            if !("mean" in names(df_summary))
                 continue
             end
 
-            mean_values = [mean_row[1, col] for col in available_reactors if !ismissing(mean_row[1, col])]
+            scale_reactors = scale_groups[scale]
+
+            # Filter to only reactors in this scale
+            df_scale = filter(row -> string(row.variable) in scale_reactors, df_summary)
+
+            if nrow(df_scale) == 0
+                continue
+            end
+
+            # Get mean values for reactors in this scale
+            mean_values = filter(!ismissing, df_scale[!, :mean])
+            if isempty(mean_values)
+                continue
+            end
             lcoe_mean = mean(mean_values)
 
             push!(N_values, N_unit)
