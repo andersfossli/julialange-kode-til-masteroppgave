@@ -76,7 +76,7 @@ println()
 
 for kappa in kappas
     premium_pct = (kappa - 1.0) * 100
-    println("κ = $kappa ($(Int(premium_pct))% FOAK premium):")
+    println("κ = $kappa ($(round(Int, premium_pct))% FOAK premium):")
     for N in N_test
         m = learning_multiplier(N, LR_test, kappa=kappa, floor=1.0)
         println("  N=$N: $(round(m, digits=3))")
