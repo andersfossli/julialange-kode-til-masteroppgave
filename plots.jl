@@ -40,8 +40,13 @@ save("$outputpath/fig-theory.pdf", fig_theory);
 # choose scaling parameters for the plot
 scaling_plot = [0.20, 0.75];
 
-fig_invest_comparison = investment_plot(pjs, scaling_plot)
-save("$outputpath/fig-investment_comparison.pdf", fig_invest_comparison);
+# Original plot (all reactors)
+# fig_invest_comparison = investment_plot(pjs, scaling_plot)
+# save("$outputpath/fig-investment_comparison.pdf", fig_invest_comparison);
+
+# New: Grouped by scale (Micro/SMR/Large)
+fig_invest_comparison_by_scale = investment_plot_by_scale(pjs, scaling_plot)
+save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison_by_scale);
 
 ##### histogram plots for comparison of estimation approaches #####
 
@@ -87,11 +92,18 @@ save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
 ##### heatmaps sensitivity indices #####
 # requires sensitvity results
 
-fig_si_npv = si_plot(si_npv_results, "NPV")
-fig_si_lcoe = si_plot(si_lcoe_results, "LCOE")
+# Original plots (all reactors - may be too crowded)
+# fig_si_npv = si_plot(si_npv_results, "NPV")
+# fig_si_lcoe = si_plot(si_lcoe_results, "LCOE")
+# save("$outputpath/fig-si_npv-$opt_scaling.pdf", fig_si_npv);
+# save("$outputpath/fig-si_lcoe-$opt_scaling.pdf", fig_si_lcoe);
 
-save("$outputpath/fig-si_npv-$opt_scaling.pdf", fig_si_npv);
-save("$outputpath/fig-si_lcoe-$opt_scaling.pdf", fig_si_lcoe);
+# New: Grouped by scale (Micro/SMR/Large)
+fig_si_npv_by_scale = si_plot_by_scale(si_npv_results, "NPV Sensitivity Indices", pjs)
+fig_si_lcoe_by_scale = si_plot_by_scale(si_lcoe_results, "LCOE Sensitivity Indices", pjs)
+
+save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
+save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
 
 ##### lcoe comparison plot #####
 # requires results for all 15 reactor concepts
@@ -151,6 +163,12 @@ save("$outputpath/fig-lcoe_comparison-$opt_scaling.pdf", fig_lcoe_comparison);
 
 fig_lcoe_scale_hist = lcoe_scale_histogram(lcoe_results, pjs)
 save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_hist);
+
+##### LCOE threshold probability plot #####
+# Shows cumulative probability: P(LCOE ≤ threshold) by scale
+
+fig_lcoe_threshold_prob = lcoe_threshold_probability_plot(lcoe_results, pjs)
+save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
 
 ##### Learning curve plots #####
 # Requires learning scenario files from smr-mcs-learning.jl
