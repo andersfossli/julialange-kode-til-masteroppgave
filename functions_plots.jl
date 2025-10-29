@@ -586,14 +586,17 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
 
         yticks_scale = available_reactors
 
+        # Create nested GridLayout for this scale group (prevents whitespace issues)
+        gl = fig[1:2, col_idx] = GridLayout()
+
         # First-order indices (S)
-        row_pos = 1
-        ax_s = Axis(fig[row_pos, col_idx],
+        ax_s = Axis(gl[1, 1],
                     xticks = (1:length(xticks), xticks),
                     yticks = (1:length(yticks_scale), yticks_scale),
                     title = "$scale - First Order (S)")
         ax_s.xticklabelrotation = π / 3
         ax_s.xticklabelalign = (:right, :center)
+        ax_s.yticklabelsize = 8  # Smaller labels for readability
 
         hmap_s = heatmap!(ax_s, data_s, colormap = colors_map[scale], colorrange = (0, 1))
 
@@ -601,17 +604,17 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
         for i in 1:length(xticks), j in 1:length(yticks_scale)
             txtcolor = data_s[i, j] > 0.5 ? :white : :black
             text!(ax_s, "$(round(data_s[i,j], digits = 2))", position = (i, j),
-                  color = txtcolor, fontsize = 10, align = (:center, :center))
+                  color = txtcolor, fontsize = 9, align = (:center, :center))
         end
 
         # Total-order indices (ST)
-        row_pos = 2
-        ax_st = Axis(fig[row_pos, col_idx],
+        ax_st = Axis(gl[2, 1],
                      xticks = (1:length(xticks), xticks),
                      yticks = (1:length(yticks_scale), yticks_scale),
                      title = "$scale - Total Order (ST)")
         ax_st.xticklabelrotation = π / 3
         ax_st.xticklabelalign = (:right, :center)
+        ax_st.yticklabelsize = 8  # Smaller labels for readability
 
         hmap_st = heatmap!(ax_st, data_st, colormap = colors_map[scale], colorrange = (0, 1))
 
@@ -619,11 +622,12 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
         for i in 1:length(xticks), j in 1:length(yticks_scale)
             txtcolor = data_st[i, j] > 0.5 ? :white : :black
             text!(ax_st, "$(round(data_st[i,j], digits = 2))", position = (i, j),
-                  color = txtcolor, fontsize = 10, align = (:center, :center))
+                  color = txtcolor, fontsize = 9, align = (:center, :center))
         end
 
-        # Add colorbar on the right side of each group
-        Colorbar(fig[1:2, col_idx+3*col_idx-2], hmap_s, width = 15)
+        # Add colorbar inside the GridLayout (prevents distortion)
+        Colorbar(gl[1:2, 2], hmap_s, width = 12)
+        colsize!(gl, 2, Auto(12))  # Keep colorbar slim
     end
 
     # Overall title
@@ -751,8 +755,8 @@ function lcoe_threshold_probability_plot(lcoe_results::DataFrame, pjs::Vector;
     fig = Figure(size = (1000, 600))
     ax = Axis(fig[1, 1],
               xlabel = "LCOE Threshold [USD/MWh]",
-              ylabel = "Probability LCOE ≤ Threshold [%]",
-              title = "Cumulative Distribution: Probability of Achieving LCOE Target")
+              ylabel = "Probability LCOE > Threshold [%]",
+              title = "Probability of Exceeding Cost Thresholds by Reactor Scale")
 
     scale_order = ["Micro", "SMR", "Large"]
     colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
@@ -773,8 +777,9 @@ function lcoe_threshold_probability_plot(lcoe_results::DataFrame, pjs::Vector;
         scale_lcoe = vcat(scale_lcoe_vectors...)
 
         # Calculate probabilities at each threshold (vectorized for speed)
+        # P(LCOE > threshold) - probability of EXCEEDING the threshold
         n_total = length(scale_lcoe)
-        probabilities = [sum(scale_lcoe .<= t) / n_total * 100 for t in thresholds]
+        probabilities = [sum(scale_lcoe .> t) / n_total * 100 for t in thresholds]
 
         # Plot line
         l = lines!(ax, thresholds, probabilities,
