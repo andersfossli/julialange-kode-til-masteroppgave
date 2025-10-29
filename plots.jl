@@ -45,7 +45,8 @@ scaling_plot = [0.20, 0.75];
 # save("$outputpath/fig-investment_comparison.pdf", fig_invest_comparison);
 
 # New: Grouped by scale (Micro/SMR/Large)
-fig_invest_comparison_by_scale = investment_plot_by_scale(pjs, scaling_plot)
+# Use Base.invokelatest to avoid Julia 1.12 world age issues
+fig_invest_comparison_by_scale = Base.invokelatest(investment_plot_by_scale, pjs, scaling_plot)
 save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison_by_scale);
 
 ##### histogram plots for comparison of estimation approaches #####
@@ -99,8 +100,9 @@ save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
 # save("$outputpath/fig-si_lcoe-$opt_scaling.pdf", fig_si_lcoe);
 
 # New: Grouped by scale (Micro/SMR/Large)
-fig_si_npv_by_scale = si_plot_by_scale(si_npv_results, "NPV Sensitivity Indices", pjs)
-fig_si_lcoe_by_scale = si_plot_by_scale(si_lcoe_results, "LCOE Sensitivity Indices", pjs)
+# Use Base.invokelatest to avoid Julia 1.12 world age issues
+fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
+fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
 
 save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
 save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
@@ -166,8 +168,9 @@ save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_his
 
 ##### LCOE threshold probability plot #####
 # Shows cumulative probability: P(LCOE ≤ threshold) by scale
+# Use Base.invokelatest to avoid Julia 1.12 world age issues
 
-fig_lcoe_threshold_prob = lcoe_threshold_probability_plot(lcoe_results, pjs)
+fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs, thresholds=collect(0:20:300))
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
 
 ##### Learning curve plots #####
