@@ -181,12 +181,31 @@ save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_thr
 
 # Define learning scenarios to plot (matching smr-mcs-learning.jl)
 # Note: baseline is plotted as dashed reference line, not as a data point
-learning_scenarios = [
-    (1, "LR10_N1_k120"),   # FOAK with 20% premium
-    (2, "LR10_N2_k120"),   # 2nd unit
-    (4, "LR10_N4_k120"),   # 4th unit (hits floor)
-    (6, "LR10_N6_k120"),   # 6th unit
-    (12, "LR10_N12_k120")  # 12th unit
+# Three scenarios: Conservative (LR=5%), Base (LR=10%), Optimistic (LR=15%)
+# κ=1.0 (FOAK-anchored), floor=nothing (unlimited learning)
+
+learning_scenarios_conservative = [
+    (1, "LR05_N1_k100"),
+    (2, "LR05_N2_k100"),
+    (4, "LR05_N4_k100"),
+    (6, "LR05_N6_k100"),
+    (12, "LR05_N12_k100")
+]
+
+learning_scenarios_base = [
+    (1, "LR10_N1_k100"),
+    (2, "LR10_N2_k100"),
+    (4, "LR10_N4_k100"),
+    (6, "LR10_N6_k100"),
+    (12, "LR10_N12_k100")
+]
+
+learning_scenarios_optimistic = [
+    (1, "LR15_N1_k100"),
+    (2, "LR15_N2_k100"),
+    (4, "LR15_N4_k100"),
+    (6, "LR15_N6_k100"),
+    (12, "LR15_N12_k100")
 ]
 
 # Check if at least the baseline learning file exists
@@ -194,15 +213,31 @@ baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling-baseline.csv"
 if isfile(baseline_file)
     @info("Learning scenario files found - generating learning curve plots")
 
-    # Overall learning curve (all reactors averaged by scale)
-    fig_learning_comparison = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios, pjs)
-    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling.pdf", fig_learning_comparison)
+    # Conservative scenario (LR=5%)
+    @info("Generating conservative learning curves (LR=5%)")
+    fig_learning_comparison_conservative = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_conservative, pjs)
+    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR05.pdf", fig_learning_comparison_conservative)
 
-    # Single overall learning curve (averaged across all reactors)
-    fig_learning_overall = learning_curve_plot(outputpath, opt_scaling, learning_scenarios)
-    save("$outputpath/fig-learning_curve_overall-$opt_scaling.pdf", fig_learning_overall)
+    fig_learning_overall_conservative = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_conservative)
+    save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR05.pdf", fig_learning_overall_conservative)
 
-    @info("Learning curve plots saved")
+    # Base scenario (LR=10%)
+    @info("Generating base learning curves (LR=10%)")
+    fig_learning_comparison_base = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_base, pjs)
+    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR10.pdf", fig_learning_comparison_base)
+
+    fig_learning_overall_base = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_base)
+    save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR10.pdf", fig_learning_overall_base)
+
+    # Optimistic scenario (LR=15%)
+    @info("Generating optimistic learning curves (LR=15%)")
+    fig_learning_comparison_optimistic = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_optimistic, pjs)
+    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR15.pdf", fig_learning_comparison_optimistic)
+
+    fig_learning_overall_optimistic = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_optimistic)
+    save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR15.pdf", fig_learning_overall_optimistic)
+
+    @info("Learning curve plots saved for all three scenarios (conservative, base, optimistic)")
 else
     @info("Learning scenario files not found - skipping learning curve plots")
     @info("Run smr-mcs-learning.jl first to generate learning scenario data")
