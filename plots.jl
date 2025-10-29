@@ -180,13 +180,13 @@ save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_thr
 # These plots are only generated if the learning CSV files exist
 
 # Define learning scenarios to plot (matching smr-mcs-learning.jl)
+# Note: baseline is plotted as dashed reference line, not as a data point
 learning_scenarios = [
-    (1, "baseline"),
-    (1, "LR10_N1_k120"),
-    (2, "LR10_N2_k120"),
-    (4, "LR10_N4_k120"),
-    (6, "LR10_N6_k120"),
-    (12, "LR10_N12_k120")
+    (1, "LR10_N1_k120"),   # FOAK with 20% premium
+    (2, "LR10_N2_k120"),   # 2nd unit
+    (4, "LR10_N4_k120"),   # 4th unit (hits floor)
+    (6, "LR10_N6_k120"),   # 6th unit
+    (12, "LR10_N12_k120")  # 12th unit
 ]
 
 # Check if at least the baseline learning file exists
