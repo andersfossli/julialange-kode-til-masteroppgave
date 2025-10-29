@@ -414,10 +414,7 @@ function learning_curve_plot(outputpath::String, opt_scaling::String, learning_s
             end
 
             if !isnothing(baseline_mean)
-                hlines!(ax, [baseline_mean], color = :gray, linestyle = :dash, linewidth = 2, label = "Baseline (SOAK)")
-                text!(ax, maximum(N_values), baseline_mean,
-                      text = "  baseline", align = (:left, :center),
-                      color = :gray, fontsize = 10)
+                hlines!(ax, [baseline_mean], color = :black, linestyle = :dash, linewidth = 2.5, label = "Baseline (SOAK)")
             end
         end
     end
@@ -542,8 +539,8 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
                     baseline_mean_values = filter(!ismissing, df_scale_baseline[!, :mean])
                     if !isempty(baseline_mean_values)
                         baseline_mean = mean(baseline_mean_values)
-                        hlines!(ax, [baseline_mean], color = :gray, linestyle = :dash,
-                               linewidth = 1.5, alpha = 0.7)
+                        hlines!(ax, [baseline_mean], color = :black, linestyle = :dash,
+                               linewidth = 2, label = "Baseline (SOAK)")
                     end
                 end
             end
@@ -567,6 +564,9 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
                       fontsize = 10)
             end
         end
+
+        # Add legend for each subplot
+        axislegend(ax, position = :rt)
 
         ax.xgridvisible = true
         ax.ygridvisible = true
