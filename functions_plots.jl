@@ -395,8 +395,37 @@ function learning_curve_plot(outputpath::String, opt_scaling::String, learning_s
               ylabel = "Mean LCOE [USD/MWh]",
               title = isnothing(reactor_name) ? "Learning Curve: Mean LCOE vs Experience" : "Learning Curve: $reactor_name")
 
-    # Plot line
-    lines!(ax, N_values, mean_lcoe, color = :blue, linewidth = 3, label = "Mean LCOE")
+    # Add baseline as dashed reference line (SOAK level)
+    baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling-baseline.csv"
+    if isfile(baseline_file)
+        df_baseline = CSV.File(baseline_file) |> DataFrame
+        if "mean" in names(df_baseline)
+            if isnothing(reactor_name)
+                # Average across all reactors
+                baseline_mean = mean(filter(!ismissing, df_baseline[!, :mean]))
+            else
+                # Specific reactor
+                reactor_row = filter(row -> row.variable == reactor_name, df_baseline)
+                if nrow(reactor_row) > 0
+                    baseline_mean = reactor_row[1, :mean]
+                else
+                    baseline_mean = nothing
+                end
+            end
+
+            if !isnothing(baseline_mean)
+                hlines!(ax, [baseline_mean], color = :gray, linestyle = :dash, linewidth = 2, label = "Baseline (SOAK)")
+                text!(ax, maximum(N_values), baseline_mean,
+                      text = "  baseline", align = (:left, :center),
+                      color = :gray, fontsize = 10)
+            end
+        end
+    end
+
+    # Plot learning curve line
+    if !isempty(N_values)
+        lines!(ax, N_values, mean_lcoe, color = :blue, linewidth = 3, label = "With Learning")
+    end
 
     # Plot markers
     scatter!(ax, N_values, mean_lcoe, color = :blue, markersize = 15, marker = :circle)
@@ -501,14 +530,33 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
             push!(mean_lcoe, lcoe_mean)
         end
 
+        # Add baseline as dashed reference line (SOAK level) for this scale
+        baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling-baseline.csv"
+        if isfile(baseline_file)
+            df_baseline = CSV.File(baseline_file) |> DataFrame
+            if "mean" in names(df_baseline)
+                scale_reactors = scale_groups[scale]
+                df_scale_baseline = filter(row -> string(row.variable) in scale_reactors, df_baseline)
+
+                if nrow(df_scale_baseline) > 0
+                    baseline_mean_values = filter(!ismissing, df_scale_baseline[!, :mean])
+                    if !isempty(baseline_mean_values)
+                        baseline_mean = mean(baseline_mean_values)
+                        hlines!(ax, [baseline_mean], color = :gray, linestyle = :dash,
+                               linewidth = 1.5, alpha = 0.7)
+                    end
+                end
+            end
+        end
+
         # Sort by N
         if !isempty(N_values)
             sort_idx = sortperm(N_values)
             N_values = N_values[sort_idx]
             mean_lcoe = mean_lcoe[sort_idx]
 
-            # Plot
-            lines!(ax, N_values, mean_lcoe, color = colors[scale], linewidth = 3)
+            # Plot learning curve
+            lines!(ax, N_values, mean_lcoe, color = colors[scale], linewidth = 3, label = "With Learning")
             scatter!(ax, N_values, mean_lcoe, color = colors[scale], markersize = 15)
 
             # Add value labels
