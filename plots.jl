@@ -171,7 +171,7 @@ save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_his
 # Use Base.invokelatest to avoid Julia 1.12 world age issues
 
 # Define thresholds (0 to 300 USD/MWh in steps of 20)
-lcoe_thresholds = collect(0:20:300)
+lcoe_thresholds = collect(0.0:20.0:300.0)  # Float64 values required
 fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
 
