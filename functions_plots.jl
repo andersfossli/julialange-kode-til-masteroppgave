@@ -768,18 +768,13 @@ function lcoe_threshold_probability_plot(lcoe_results::DataFrame, pjs::Vector;
             continue
         end
 
-        # Combine all LCOE values for this scale
-        scale_lcoe = Float64[]
-        for reactor in reactors
-            append!(scale_lcoe, lcoe_results[!, reactor])
-        end
+        # Combine all LCOE values for this scale (more efficient concatenation)
+        scale_lcoe_vectors = [lcoe_results[!, reactor] for reactor in reactors]
+        scale_lcoe = vcat(scale_lcoe_vectors...)
 
-        # Calculate probability at each threshold
-        probabilities = Float64[]
-        for threshold in thresholds
-            prob = sum(scale_lcoe .<= threshold) / length(scale_lcoe) * 100
-            push!(probabilities, prob)
-        end
+        # Calculate probabilities at each threshold (vectorized for speed)
+        n_total = length(scale_lcoe)
+        probabilities = [sum(scale_lcoe .<= t) / n_total * 100 for t in thresholds]
 
         # Plot line
         l = lines!(ax, thresholds, probabilities,
