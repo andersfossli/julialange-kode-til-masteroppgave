@@ -170,7 +170,9 @@ save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_his
 # Shows cumulative probability: P(LCOE ≤ threshold) by scale
 # Use Base.invokelatest to avoid Julia 1.12 world age issues
 
-fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs, thresholds=collect(0:20:300))
+# Define thresholds (0 to 300 USD/MWh in steps of 20)
+lcoe_thresholds = collect(0:20:300)
+fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
 
 ##### Learning curve plots #####
