@@ -530,3 +530,280 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
 
     return fig
 end
+
+"""
+    si_plot_by_scale(si_results, title::String, pjs::Vector)
+
+Create sensitivity index heatmap grouped by reactor scale (Micro/SMR/Large).
+Three columns showing first-order (S) and total-order (ST) indices for each scale group.
+
+# Arguments
+- `si_results::DataFrame`: Sensitivity results with columns [si, var, reactor1, reactor2, ...]
+- `title::String`: Plot title
+- `pjs::Vector`: Vector of project objects (to get scale information)
+
+# Returns
+- Figure object with grouped heatmaps
+"""
+function si_plot_by_scale(si_results, title::String, pjs::Vector)
+
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => String[], "SMR" => String[], "Large" => String[])
+
+    for pj in pjs
+        if haskey(scale_groups, pj.scale)
+            push!(scale_groups[pj.scale], pj.name)
+        end
+    end
+
+    # Filter SI results
+    si_s = filter(:si => index -> index == "S", si_results)
+    si_st = filter(:si => index -> index == "ST", si_results)
+    xticks = si_s.var
+
+    # Create figure with 3 scale groups side by side
+    fig = Figure(size = (1800, 600))
+    scale_order = ["Micro", "SMR", "Large"]
+    colors_map = Dict("Micro" => :reds, "SMR" => :blues, "Large" => :greens)
+
+    for (col_idx, scale) in enumerate(scale_order)
+        reactors = scale_groups[scale]
+
+        if isempty(reactors)
+            continue
+        end
+
+        # Filter columns for this scale
+        available_reactors = filter(r -> r in names(si_results), reactors)
+
+        if isempty(available_reactors)
+            continue
+        end
+
+        # Extract data for this scale
+        data_s = Matrix(si_s[:, available_reactors])
+        data_st = Matrix(si_st[:, available_reactors])
+
+        yticks_scale = available_reactors
+
+        # First-order indices (S)
+        row_pos = 1
+        ax_s = Axis(fig[row_pos, col_idx],
+                    xticks = (1:length(xticks), xticks),
+                    yticks = (1:length(yticks_scale), yticks_scale),
+                    title = "$scale - First Order (S)")
+        ax_s.xticklabelrotation = π / 3
+        ax_s.xticklabelalign = (:right, :center)
+
+        hmap_s = heatmap!(ax_s, data_s, colormap = colors_map[scale], colorrange = (0, 1))
+
+        # Add text labels
+        for i in 1:length(xticks), j in 1:length(yticks_scale)
+            txtcolor = data_s[i, j] > 0.5 ? :white : :black
+            text!(ax_s, "$(round(data_s[i,j], digits = 2))", position = (i, j),
+                  color = txtcolor, fontsize = 10, align = (:center, :center))
+        end
+
+        # Total-order indices (ST)
+        row_pos = 2
+        ax_st = Axis(fig[row_pos, col_idx],
+                     xticks = (1:length(xticks), xticks),
+                     yticks = (1:length(yticks_scale), yticks_scale),
+                     title = "$scale - Total Order (ST)")
+        ax_st.xticklabelrotation = π / 3
+        ax_st.xticklabelalign = (:right, :center)
+
+        hmap_st = heatmap!(ax_st, data_st, colormap = colors_map[scale], colorrange = (0, 1))
+
+        # Add text labels
+        for i in 1:length(xticks), j in 1:length(yticks_scale)
+            txtcolor = data_st[i, j] > 0.5 ? :white : :black
+            text!(ax_st, "$(round(data_st[i,j], digits = 2))", position = (i, j),
+                  color = txtcolor, fontsize = 10, align = (:center, :center))
+        end
+
+        # Add colorbar on the right side of each group
+        Colorbar(fig[1:2, col_idx+3*col_idx-2], hmap_s, width = 15)
+    end
+
+    # Overall title
+    Label(fig[0, :], title, fontsize = 20, font = "Noto Sans Bold", color = (:black, 0.25))
+
+    return fig
+end
+
+"""
+    investment_plot_by_scale(pjs::Vector, scaling_plot::Vector)
+
+Create investment comparison plot grouped by reactor scale (Micro/SMR/Large).
+Three subplots showing manufacturer estimates vs. scaling methods for each group.
+
+# Arguments
+- `pjs::Vector`: Vector of project objects
+- `scaling_plot::Vector`: Scaling parameter bounds [lower, upper]
+
+# Returns
+- Figure object with grouped investment comparisons
+"""
+function investment_plot_by_scale(pjs::Vector, scaling_plot::Vector)
+
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => Int[], "SMR" => Int[], "Large" => Int[])
+
+    for (idx, pj) in enumerate(pjs)
+        if haskey(scale_groups, pj.scale)
+            push!(scale_groups[pj.scale], idx)
+        end
+    end
+
+    # Create figure with 3 subplots
+    fig = Figure(size = (1800, 800))
+    scale_order = ["Micro", "SMR", "Large"]
+    colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
+
+    for (row_idx, scale) in enumerate(scale_order)
+        indices = scale_groups[scale]
+
+        if isempty(indices)
+            continue
+        end
+
+        # Generate scaled investments for this group
+        scaled_investments = DataFrame()
+        reactor_names = String[]
+
+        for idx in indices
+            scaled_investments.res = gen_scaled_investment(scaling_plot, pjs[idx])
+            rename!(scaled_investments, :res => pjs[idx].name)
+            push!(reactor_names, pjs[idx].name)
+        end
+
+        # Create axis
+        ax = Axis(fig[row_idx, 1],
+                  yticks = (1:length(reactor_names), reactor_names),
+                  xscale = log10,
+                  xlabel = "[USD/MW]",
+                  title = "$scale Reactors")
+
+        # Plot range bars and manufacturer estimates
+        rothwell = rangebars!(ax, 1.2:length(reactor_names)+0.2,
+                             collect(scaled_investments[5,:]),
+                             collect(scaled_investments[4,:]),
+                             linewidth = 6, whiskerwidth = 12, direction = :x,
+                             color = colors[scale], alpha = 0.4)
+
+        roulstone = rangebars!(ax, 1:length(reactor_names),
+                              collect(scaled_investments[3,:]),
+                              collect(scaled_investments[2,:]),
+                              linewidth = 6, whiskerwidth = 12, direction = :x,
+                              color = colors[scale], alpha = 0.6)
+
+        manufacturer = scatter!(ax, collect(scaled_investments[1,:]),
+                               1:length(reactor_names),
+                               marker = :star5, color = :black, markersize = 15)
+
+        # Add legend only to first subplot
+        if row_idx == 1
+            Legend(fig[row_idx, 1],
+                   [manufacturer, roulstone, rothwell],
+                   ["Manufacturer", "Roulstone", "Rothwell"],
+                   tellheight = false, tellwidth = false,
+                   halign = :right, valign = :top,
+                   framevisible = true, orientation = :vertical)
+        end
+    end
+
+    # Overall title
+    Label(fig[0, :], "Investment Cost Comparison by Reactor Scale",
+          fontsize = 20, font = "Noto Sans Bold")
+
+    return fig
+end
+
+"""
+    lcoe_threshold_probability_plot(lcoe_results::DataFrame, pjs::Vector;
+                                    thresholds::Vector{Float64}=collect(0:10:300))
+
+Create plot showing probability of LCOE being at or below threshold values,
+grouped by reactor scale (Micro/SMR/Large).
+
+# Arguments
+- `lcoe_results::DataFrame`: LCOE Monte Carlo results (one column per reactor)
+- `pjs::Vector`: Vector of project objects (to get scale information)
+- `thresholds::Vector{Float64}`: LCOE threshold values to evaluate (default: 0 to 300 in steps of 10)
+
+# Returns
+- Figure object with threshold probability curves
+"""
+function lcoe_threshold_probability_plot(lcoe_results::DataFrame, pjs::Vector;
+                                        thresholds::Vector{Float64}=collect(0:10:300))
+
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => String[], "SMR" => String[], "Large" => String[])
+
+    for pj in pjs
+        if haskey(scale_groups, pj.scale) && (pj.name in names(lcoe_results))
+            push!(scale_groups[pj.scale], pj.name)
+        end
+    end
+
+    # Calculate probabilities for each scale
+    fig = Figure(size = (1000, 600))
+    ax = Axis(fig[1, 1],
+              xlabel = "LCOE Threshold [USD/MWh]",
+              ylabel = "Probability LCOE ≤ Threshold [%]",
+              title = "Cumulative Distribution: Probability of Achieving LCOE Target")
+
+    scale_order = ["Micro", "SMR", "Large"]
+    colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
+    markers = Dict("Micro" => :circle, "SMR" => :rect, "Large" => :diamond)
+
+    legend_items = []
+    legend_labels = String[]
+
+    for scale in scale_order
+        reactors = scale_groups[scale]
+
+        if isempty(reactors)
+            continue
+        end
+
+        # Combine all LCOE values for this scale
+        scale_lcoe = Float64[]
+        for reactor in reactors
+            append!(scale_lcoe, lcoe_results[!, reactor])
+        end
+
+        # Calculate probability at each threshold
+        probabilities = Float64[]
+        for threshold in thresholds
+            prob = sum(scale_lcoe .<= threshold) / length(scale_lcoe) * 100
+            push!(probabilities, prob)
+        end
+
+        # Plot line
+        l = lines!(ax, thresholds, probabilities,
+                   color = colors[scale], linewidth = 3,
+                   label = "$scale (N=$(length(reactors)))")
+
+        # Add markers
+        scatter!(ax, thresholds, probabilities,
+                 color = colors[scale], marker = markers[scale],
+                 markersize = 8)
+
+        push!(legend_items, l)
+        push!(legend_labels, "$scale (N=$(length(reactors)))")
+    end
+
+    # Add reference lines
+    hlines!(ax, [50], color = :gray, linestyle = :dash, linewidth = 2, label = "50% probability")
+
+    # Add legend
+    axislegend(ax, position = :rb)
+
+    # Add grid
+    ax.xgridvisible = true
+    ax.ygridvisible = true
+
+    return fig
+end
