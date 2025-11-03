@@ -119,11 +119,11 @@ function get_reference_values(reactor_type)
     elseif reactor_type == "HTR"
         return (investment=7195125, capacity=330)
     elseif reactor_type == "SFR"
-        return (investment=27747200, capacity=1250)
+        return (investment=5200000, capacity=1250)  # Fixed: was 27747200
     elseif reactor_type == "MSR"
         return (investment=8600000, capacity=1000)  # Default, adjust as needed
     elseif reactor_type == "LFR"
-        return (investment=27747200, capacity=1250)  # Similar to SFR
+        return (investment=5200000, capacity=1250)  # Similar to SFR, fixed from 27747200
     else
         return (investment=8600000, capacity=1000)  # Default fallback
     end
