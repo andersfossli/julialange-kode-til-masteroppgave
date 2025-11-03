@@ -1126,3 +1126,106 @@ function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
 
     return fig
 end
+
+
+"""
+    wacc_sensitivity_plot(pjs, opt_scaling, wacc_range, electricity_price_mean, construction_time_ranges; n=10000)
+
+Creates a WACC sensitivity plot showing how median LCOE varies with discount rate for different reactor scales.
+
+Arguments:
+- `pjs`: Vector of project objects
+- `opt_scaling`: Scaling option to use (e.g., "roulstone")
+- `wacc_range`: Vector of WACC values to test (e.g., 0.03:0.01:0.12)
+- `electricity_price_mean`: Mean electricity price [USD/MWh]
+- `construction_time_ranges`: Dict mapping scale to construction time range
+- `n`: Number of Monte Carlo simulations per WACC point (default: 10000)
+
+Returns:
+- Figure with WACC (%) vs median LCOE (USD/MWh) for Micro, SMR, and Large reactors
+"""
+function wacc_sensitivity_plot(pjs, opt_scaling, wacc_range, electricity_price_mean, construction_time_ranges; n=10000)
+
+    @info("Generating WACC sensitivity analysis...")
+
+    # Storage for results
+    wacc_percentages = Float64[]
+    micro_median_lcoe = Float64[]
+    smr_median_lcoe = Float64[]
+    large_median_lcoe = Float64[]
+
+    # For each WACC value
+    for wacc_val in wacc_range
+        @info("  Testing WACC = $(round(wacc_val*100, digits=1))%")
+
+        # Storage for this WACC point
+        micro_lcoe_all = Float64[]
+        smr_lcoe_all = Float64[]
+        large_lcoe_all = Float64[]
+
+        # Run simulation for each reactor with this WACC
+        for pj in pjs
+            # Get construction time range for this scale
+            construction_time_range = construction_time_ranges[pj.scale]
+
+            # Generate random variables with fixed WACC (narrow range around point)
+            wacc_fixed = [wacc_val, wacc_val]  # Same value for min and max = deterministic
+
+            rand_vars = gen_rand_vars(opt_scaling, n, wacc_fixed, electricity_price_mean, pj;
+                                     construction_time_range=construction_time_range)
+
+            # Run simulation
+            results = investment_simulation(pj, rand_vars)
+            lcoe_values = vec(results[2])  # Extract LCOE results
+
+            # Group by scale
+            if pj.scale == "Micro"
+                append!(micro_lcoe_all, lcoe_values)
+            elseif pj.scale == "SMR"
+                append!(smr_lcoe_all, lcoe_values)
+            elseif pj.scale == "Large"
+                append!(large_lcoe_all, lcoe_values)
+            end
+        end
+
+        # Calculate median LCOE for each scale at this WACC
+        push!(wacc_percentages, wacc_val * 100)  # Convert to percentage
+        push!(micro_median_lcoe, isempty(micro_lcoe_all) ? NaN : median(micro_lcoe_all))
+        push!(smr_median_lcoe, isempty(smr_lcoe_all) ? NaN : median(smr_lcoe_all))
+        push!(large_median_lcoe, isempty(large_lcoe_all) ? NaN : median(large_lcoe_all))
+    end
+
+    # Create plot
+    fig = Figure(size=(800, 600))
+    ax = Axis(fig[1,1],
+             xlabel="Discount rate (WACC, %)",
+             ylabel="Median LCOE [USD/MWh]",
+             title="LCOE Sensitivity to Discount Rate by Reactor Scale")
+
+    # Plot lines for each scale
+    micro_line = lines!(ax, wacc_percentages, micro_median_lcoe,
+                       label="Micro", linewidth=3, color=:blue)
+    smr_line = lines!(ax, wacc_percentages, smr_median_lcoe,
+                     label="SMR", linewidth=3, color=:green)
+    large_line = lines!(ax, wacc_percentages, large_median_lcoe,
+                       label="Large", linewidth=3, color=:red)
+
+    # Add markers
+    scatter!(ax, wacc_percentages, micro_median_lcoe,
+            color=:blue, markersize=10)
+    scatter!(ax, wacc_percentages, smr_median_lcoe,
+            color=:green, markersize=10)
+    scatter!(ax, wacc_percentages, large_median_lcoe,
+            color=:red, markersize=10)
+
+    # Add legend
+    Legend(fig[1,2], ax, framevisible=true)
+
+    # Grid
+    ax.xgridvisible = true
+    ax.ygridvisible = true
+
+    @info("WACC sensitivity plot complete")
+
+    return fig
+end
