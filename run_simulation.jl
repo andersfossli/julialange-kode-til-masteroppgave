@@ -7,8 +7,11 @@ lcoe_results = DataFrame();
 # run simulation for all projects
 for p in eachindex(pjs)
     @info("running simulation for", p, name = pjs[p].name)
+    # get construction time range for this project's scale
+    construction_time_range = construction_time_ranges[pjs[p].scale]
     # generate random variables
-    rand_vars = gen_rand_vars(opt_scaling, n, wacc, electricity_price, pjs[p])
+    rand_vars = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pjs[p];
+                              construction_time_range=construction_time_range)
     # run Monte Carlo simulation
     results = investment_simulation(pjs[p], rand_vars)
     # normalize NPV to plant capacity [USD/MW]
@@ -33,15 +36,18 @@ CSV.write("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", lcoe_summary[!,1:8]);
 # initialize results variables
 si_npv_results = DataFrame();
 si_npv_results.si = ["S", "S", "S", "S", "ST", "ST", "ST", "ST"];
-si_npv_results.var = ["wacc", "electricity_price", "loadfactor", "investment", "wacc", "electricity_price", "loadfactor", "investment"];
+si_npv_results.var = ["wacc", "construction_time", "loadfactor", "investment", "wacc", "construction_time", "loadfactor", "investment"];
 si_lcoe_results = DataFrame();
 si_lcoe_results.si = ["S", "S", "S", "S", "ST", "ST", "ST", "ST"];
-si_lcoe_results.var = ["wacc", "electricity_price", "loadfactor", "investment", "wacc", "electricity_price", "loadfactor", "investment"];
+si_lcoe_results.var = ["wacc", "construction_time", "loadfactor", "investment", "wacc", "construction_time", "loadfactor", "investment"];
 
 # run sensitivity analysis for all projects
 for p in eachindex(pjs)
     @info("running sensitivity analysis for", p, name = pjs[p].name)
-    si_results = sensitivity_index(opt_scaling, n, wacc, electricity_price, pjs[p])
+    # get construction time range for this project's scale
+    construction_time_range = construction_time_ranges[pjs[p].scale]
+    si_results = sensitivity_index(opt_scaling, n, wacc, electricity_price_mean, pjs[p];
+                                   construction_time_range=construction_time_range)
     si_npv_results.res = vcat(collect(si_results[1]),collect(si_results[2]))
     rename!(si_npv_results,:res => pjs[p].name)
     si_lcoe_results.res = vcat(collect(si_results[3]),collect(si_results[4]))

@@ -94,9 +94,10 @@ The function then generates random project-specific variables based on the opt_s
     If the opt_scaling is not one of the above, the function print an error message, "Option for the scaling method is unknown."
 Finally, the function returns the generated random variables in the form of a named tuple with four fields: wacc, electricity_price, loadfactor, and investment and their corresponding values.
 """
-function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_price::Vector, pj::project;
+function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
                        apply_learning::Bool=false, N_unit::Int=1, LR::Float64=0.0, kappa::Float64=1.0, floor_m::Union{Nothing,Float64}=nothing,
-                       apply_soak_discount::Bool=false)
+                       apply_soak_discount::Bool=false,
+                       construction_time_range::Union{Nothing,Vector}=nothing)
 
     @info "generating random variables"
 
@@ -112,7 +113,8 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
 
     # generation of uniformly distributed random non-project specific variables
         rand_wacc = wacc[1] .+ (wacc[2]-wacc[1]) * rand(n)
-        rand_electricity_price = electricity_price[1] .+ (electricity_price[2]-electricity_price[1]) * rand(n,total_time)
+        # Electricity price is now fixed at mean (doesn't affect LCOE calculation)
+        rand_electricity_price = fill(electricity_price_mean, n, total_time)
         rand_loadfactor = pj.loadfactor[1] .+ (pj.loadfactor[2]-pj.loadfactor[1]) * rand(n,total_time)
     
     # generation of uniformly distributed random project specific variables
@@ -166,8 +168,22 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
         rand_investment .*= m
     end
 
+    # Generate random construction times (new: replaces electricity price uncertainty)
+    if !isnothing(construction_time_range)
+        @info("Generating construction time uncertainty: [$(construction_time_range[1]), $(construction_time_range[2])] years")
+        rand_construction_time = construction_time_range[1] .+
+                                (construction_time_range[2] - construction_time_range[1]) .*
+                                rand(n)
+        # Round to integer years
+        rand_construction_time = round.(Int, rand_construction_time)
+    else
+        # Use deterministic construction time from project data
+        rand_construction_time = fill(Int(pj.time[1]), n)
+    end
+
     # output
-    return(wacc = rand_wacc, electricity_price = rand_electricity_price, loadfactor = rand_loadfactor, investment = rand_investment)
+    return(wacc = rand_wacc, electricity_price = rand_electricity_price, loadfactor = rand_loadfactor,
+           investment = rand_investment, construction_time = rand_construction_time)
 
 end
 
@@ -185,8 +201,6 @@ function mc_run(n::Int64, pj::project, rand_vars)
     @info "running Monte Carlo simulation"
 
     # project data
-        # total time of reactor project, i.e., construction and operating time
-        total_time = pj.time[1] + pj.time[2]
         # O&M costs
             # fixed O&M costs [USD/year]
             operating_cost_fix = pj.plant_capacity * pj.operating_cost[1]
@@ -199,6 +213,12 @@ function mc_run(n::Int64, pj::project, rand_vars)
         rand_electricity_price = rand_vars.electricity_price
         rand_loadfactor = rand_vars.loadfactor
         rand_investment = rand_vars.investment
+        rand_construction_time = rand_vars.construction_time
+
+        # Calculate maximum construction time to size arrays
+        max_construction = maximum(rand_construction_time)
+        total_time = max_construction + pj.time[2]
+
         # cash inflow
         cash_in = zeros(Float64, n, total_time)
         # cash outflow
@@ -214,24 +234,34 @@ function mc_run(n::Int64, pj::project, rand_vars)
         # discounted generated electricity
         disc_electricity = zeros(Float64, n, total_time)
 
-    # simulation loop
+    # simulation loop - iterate over simulations (each has different construction time)
+    for i in 1:n
+        construction_end = rand_construction_time[i]
+        lifetime_end = construction_end + pj.time[2]
+
         for t in 1:total_time
-            if t <= pj.time[1]
-                cash_out[:,t] = rand_investment ./ pj.time[1]
-                cash_net[:,t] = cash_in[:,t] - cash_out[:,t]
+            if t <= construction_end
+                # Construction phase
+                cash_out[i,t] = rand_investment[i] / construction_end
+                cash_net[i,t] = -cash_out[i,t]
+
+            elseif t <= lifetime_end
+                # Operating phase
+                electricity[i,t] = pj.plant_capacity * rand_loadfactor[i,t] * 8760
+                cash_in[i,t] = rand_electricity_price[i,t] * electricity[i,t]
+                cash_out[i,t] = operating_cost_fix + operating_cost_variable * electricity[i,t]
+                cash_net[i,t] = cash_in[i,t] - cash_out[i,t]
+                disc_electricity[i,t] = electricity[i,t] / ((1 + rand_wacc[i])^(t-1))
             else
-                # amount of electricity produced
-                electricity[:,t] = pj.plant_capacity .* rand_loadfactor[:,t] .* 8760
-                # cash inflow from electricity sales
-                cash_in[:,t] = rand_electricity_price[:,t] .* electricity[:,t]
-                # cash outflow O&M costs
-                cash_out[:,t] = operating_cost_fix .+ operating_cost_variable * electricity[:,t]
-                cash_net[:,t] = cash_in[:,t] - cash_out[:,t]
-                disc_electricity[:,t] = electricity[:,t] ./ ((1 .+ rand_wacc[:]) .^ (t-1))
+                # Beyond this simulation's lifetime - arrays already initialized to zero
+                continue
             end
-            disc_cash_out[:,t] = cash_out[:,t] ./ ((1 .+ rand_wacc[:]) .^ (t-1))
-            disc_cash_net[:,t] = cash_net[:,t] ./ ((1 .+ rand_wacc[:]) .^ (t-1))
+
+            # Discount cash flows (applies to all periods)
+            disc_cash_out[i,t] = cash_out[i,t] / ((1 + rand_wacc[i])^(t-1))
+            disc_cash_net[i,t] = cash_net[i,t] / ((1 + rand_wacc[i])^(t-1))
         end
+    end
 
     # output
     return(disc_cash_out = disc_cash_out, disc_cash_net = disc_cash_net, disc_electricity = disc_electricity)
@@ -415,20 +445,32 @@ The function then generates two random variable matrices A and B using the gen_r
 The function then calculates sensitivity indices for both NPV and LCOE. The sensitivity indices are calculated separately for each random variable, and both first-order and total-order sensitivity indices are calculated. The resulting sensitivity indices are stored in tuples S_NPV, ST_NPV, S_LCOE, and ST_LCOE.
 Finally, the function outputs the sensitivity results for the project, including the project's name, type, and the calculated sensitivity indices for NPV and LCOE. The function returns a tuple containing the sensitivity indices for NPV and LCOE.
 """
-function sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electricity_price::Vector, pj::project)
+function sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
+                          construction_time_range::Union{Nothing,Vector}=nothing)
 
     # generate random variable matrices A and B
     @info "generating matrix A"
-    rand_vars_A = gen_rand_vars(opt_scaling, n, wacc, electricity_price, pj);
+    rand_vars_A = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
+                                construction_time_range=construction_time_range);
     @info "generating matrix B"
-    rand_vars_B = gen_rand_vars(opt_scaling, n, wacc, electricity_price, pj);
+    rand_vars_B = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
+                                construction_time_range=construction_time_range);
 
     # build random variable matrices AB from A and B for each random variable
+    # AB matrices vary one parameter at a time for Sobol sensitivity
     @info "building matrices AB"
-    rand_vars_AB1 = (wacc = rand_vars_B.wacc, electricity_price = rand_vars_A.electricity_price, loadfactor = rand_vars_A.loadfactor, investment = rand_vars_A.investment);
-    rand_vars_AB2 = (wacc = rand_vars_A.wacc, electricity_price = rand_vars_B.electricity_price, loadfactor = rand_vars_A.loadfactor, investment = rand_vars_A.investment);
-    rand_vars_AB3 = (wacc = rand_vars_A.wacc, electricity_price = rand_vars_A.electricity_price, loadfactor = rand_vars_B.loadfactor, investment = rand_vars_A.investment);
-    rand_vars_AB4 = (wacc = rand_vars_A.wacc, electricity_price = rand_vars_A.electricity_price, loadfactor = rand_vars_A.loadfactor, investment = rand_vars_B.investment);
+    rand_vars_AB1 = (wacc = rand_vars_B.wacc, electricity_price = rand_vars_A.electricity_price,
+                    loadfactor = rand_vars_A.loadfactor, investment = rand_vars_A.investment,
+                    construction_time = rand_vars_A.construction_time);
+    rand_vars_AB2 = (wacc = rand_vars_A.wacc, electricity_price = rand_vars_A.electricity_price,
+                    loadfactor = rand_vars_A.loadfactor, investment = rand_vars_A.investment,
+                    construction_time = rand_vars_B.construction_time);  # Vary construction_time
+    rand_vars_AB3 = (wacc = rand_vars_A.wacc, electricity_price = rand_vars_A.electricity_price,
+                    loadfactor = rand_vars_B.loadfactor, investment = rand_vars_A.investment,
+                    construction_time = rand_vars_A.construction_time);
+    rand_vars_AB4 = (wacc = rand_vars_A.wacc, electricity_price = rand_vars_A.electricity_price,
+                    loadfactor = rand_vars_A.loadfactor, investment = rand_vars_B.investment,
+                    construction_time = rand_vars_A.construction_time);
 
     # run Monte Carlo simulations for A, B, and AB
     @info "matrix A:"
@@ -447,13 +489,13 @@ function sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electric
     # sensitivity indices for NPV
     s_npv = (
         wacc = si_first_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB1[1]),
-        electricity_price = si_first_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB2[1]),
+        construction_time = si_first_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB2[1]),
         loadfactor = si_first_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB3[1]),
         investment = si_first_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB4[1]),
         )
     st_npv = (
         wacc = si_total_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB1[1]),
-        electricity_price = si_total_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB2[1]),
+        construction_time = si_total_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB2[1]),
         loadfactor = si_total_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB3[1]),
         investment = si_total_order(sensi_res_A[1], sensi_res_B[1], sensi_res_AB4[1])
         )
@@ -461,13 +503,13 @@ function sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electric
     # sensitivity indices for LCOE
     s_lcoe = (
         wacc = si_first_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB1[2]),
-        electricity_price = si_first_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB2[2]),
+        construction_time = si_first_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB2[2]),
         loadfactor = si_first_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB3[2]),
         investment = si_first_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB4[2]),
         )
     st_lcoe = (
         wacc = si_total_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB1[2]),
-        electricity_price = si_total_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB2[2]),
+        construction_time = si_total_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB2[2]),
         loadfactor = si_total_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB3[2]),
         investment = si_total_order(sensi_res_A[2], sensi_res_B[2], sensi_res_AB4[2])
         )
