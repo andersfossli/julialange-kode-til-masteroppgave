@@ -54,7 +54,7 @@ save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison
 hist_invest = Figure();
 
 for i in 1:3, j in 1:5
-    hist_invest_plot(n, wacc, electricity_price, pjs[j+5*(i-1)], i, j, hist_invest)
+    hist_invest_plot(n, wacc, electricity_price_mean, pjs[j+5*(i-1)], i, j, hist_invest)
 end
 
 Legend(hist_invest[4,1:5],
@@ -70,7 +70,7 @@ save("$outputpath/fig-histogram_investment.pdf", hist_invest);
 density_invest = Figure();
 
 for i in 1:3, j in 1:5
-    density_invest_plot(n, wacc, electricity_price, pjs[j+5*(i-1)], i, j, density_invest)
+    density_invest_plot(n, wacc, electricity_price_mean, pjs[j+5*(i-1)], i, j, density_invest)
 end
 
 Legend(density_invest[4,1:5],

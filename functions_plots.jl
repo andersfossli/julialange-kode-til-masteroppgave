@@ -43,7 +43,7 @@ end
 The hist_invest_plot function generates a histogram plot of the investment values of a given project for a specified number of trials. The function takes in six arguments:
 - `n::Int64`: The number of trials.
 - `wacc::Vector`: A vector of weighted average cost of capital values for each trial (not used for the plot but needed for the gen_rand_vars function).
-- `electricity_price::Vector`: A vector of electricity prices for each trial (not used for the plot but needed for the gen_rand_vars function).
+- `electricity_price_mean::Float64`: Mean electricity price (not used for the plot but needed for the gen_rand_vars function).
 - `pj::project`: An instance of a project class that contains information about the project.
 - `i::Int64`: The row index of the subplot where the histogram plot will be added.
 - `j::Int64`: The column index of the subplot where the histogram plot will be added.
@@ -51,11 +51,11 @@ The hist_invest_plot function generates a histogram plot of the investment value
 
 The function first generates random variables using the gen_rand_vars function for two different options of scaling. It then adds the histograms to the plot. Each histogram is normalized to show the probability density function.
 """
-function hist_invest_plot(n::Int64, wacc::Vector, electricity_price::Vector, pj::project, i::Int64, j::Int64, hist_invest = Figure())
+function hist_invest_plot(n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project, i::Int64, j::Int64, hist_invest = Figure())
 
-    random_vars_roulstone = gen_rand_vars(opts_scaling[2], n, wacc, electricity_price, pj)
-    random_vars_rothwell = gen_rand_vars(opts_scaling[3], n, wacc, electricity_price, pj)
-    # random_vars_uniform = gen_rand_vars(opts_scaling[4], n, wacc, electricity_price, pj)
+    random_vars_roulstone = gen_rand_vars(opts_scaling[2], n, wacc, electricity_price_mean, pj)
+    random_vars_rothwell = gen_rand_vars(opts_scaling[3], n, wacc, electricity_price_mean, pj)
+    # random_vars_uniform = gen_rand_vars(opts_scaling[4], n, wacc, electricity_price_mean, pj)
 
     ax_invest = Axis(hist_invest[i,j]);
     hidedecorations!(ax_invest)
@@ -73,7 +73,7 @@ end
 The density_invest_plot function generates a probability density plot of the investment values of a given project for a specified number of trials. The function takes in six arguments:
 - `n::Int64`: The number of trials.
 - `wacc::Vector`: A vector of weighted average cost of capital values for each trial (not used for the plot but needed for the gen_rand_vars function).
-- `electricity_price::Vector`: A vector of electricity prices for each trial (not used for the plot but needed for the gen_rand_vars function).
+- `electricity_price_mean::Float64`: Mean electricity price (not used for the plot but needed for the gen_rand_vars function).
 - `pj::project`: An instance of a project class that contains information about the project.
 - `i::Int64`: The row index of the subplot where the histogram plot will be added.
 - `j::Int64`: The column index of the subplot where the histogram plot will be added.
@@ -81,11 +81,11 @@ The density_invest_plot function generates a probability density plot of the inv
 
 The function first generates random variables using the gen_rand_vars function for two different options of scaling. It then adds the probability density function to the plot.
 """
-function density_invest_plot(n::Int64, wacc::Vector, electricity_price::Vector, pj::project, i::Int64, j::Int64, density_invest = Figure())
+function density_invest_plot(n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project, i::Int64, j::Int64, density_invest = Figure())
 
-    random_vars_roulstone = gen_rand_vars(opts_scaling[2], n, wacc, electricity_price, pj)
-    random_vars_rothwell = gen_rand_vars(opts_scaling[3], n, wacc, electricity_price, pj)
-    # random_vars_uniform = gen_rand_vars(opts_scaling[4], n, wacc, electricity_price, pj)
+    random_vars_roulstone = gen_rand_vars(opts_scaling[2], n, wacc, electricity_price_mean, pj)
+    random_vars_rothwell = gen_rand_vars(opts_scaling[3], n, wacc, electricity_price_mean, pj)
+    # random_vars_uniform = gen_rand_vars(opts_scaling[4], n, wacc, electricity_price_mean, pj)
 
     ax_invest = Axis(density_invest[i,j]);
     hidedecorations!(ax_invest)
