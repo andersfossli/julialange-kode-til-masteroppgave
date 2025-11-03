@@ -266,3 +266,25 @@ else
     @info("Learning scenario files not found - skipping learning curve plots")
     @info("Run smr-mcs-learning.jl first to generate learning scenario data")
 end
+
+##### WACC sensitivity analysis #####
+# Shows how median LCOE varies with discount rate for different reactor scales
+
+@info("Generating WACC sensitivity plot")
+
+# Define WACC range for sensitivity analysis (3% to 12% in 1% steps)
+wacc_sensitivity_range = 0.03:0.01:0.12
+
+# Generate the plot (uses fewer simulations for speed: 5000 per WACC point)
+fig_wacc_sensitivity = Base.invokelatest(
+    wacc_sensitivity_plot,
+    pjs,
+    opt_scaling,
+    wacc_sensitivity_range,
+    electricity_price_mean,
+    construction_time_ranges;
+    n=5000  # Reduced from 10000 for faster computation
+)
+
+save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
+@info("WACC sensitivity plot saved")
