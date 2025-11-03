@@ -108,8 +108,15 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
         @info("SOAK discount disabled: using manufacturer OCC without learning_factor discount")
     end
 
-    # total time of reactor project, i.e., construction and operating time
-    total_time = pj.time[1] + pj.time[2]
+    # Calculate total time based on maximum possible construction time (if variable) or fixed construction time
+    # This ensures arrays are sized correctly for variable construction times
+    if !isnothing(construction_time_range)
+        max_possible_construction = construction_time_range[2]  # upper bound of construction time range
+        total_time = max_possible_construction + pj.time[2]
+        @info("Array sizing based on max construction time: $max_possible_construction + $(pj.time[2]) = $total_time years")
+    else
+        total_time = pj.time[1] + pj.time[2]
+    end
 
     # generation of uniformly distributed random non-project specific variables
         rand_wacc = wacc[1] .+ (wacc[2]-wacc[1]) * rand(n)
