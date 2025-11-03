@@ -28,7 +28,7 @@ end
 ##### defining functions #####
 
 """
-    learning_multiplier(N::Int, LR::Float64; kappa::Float64=1.0, floor::Union{Nothing,Float64}=nothing)
+    learning_multiplier(N::Int, LR::Float64; kappa::Float64=1.0, floor::Union{Nothing,Float64}=nothing, learning_type::String="factory")
 
 Calculate the learning curve multiplier for cost reduction based on number of units built.
 
@@ -37,19 +37,47 @@ Calculate the learning curve multiplier for cost reduction based on number of un
 - `LR::Float64`: Learning rate (e.g., 0.10 for 10% cost reduction per doubling)
 - `kappa::Float64=1.0`: FOAK premium multiplier (e.g., 1.20 = 20% premium above SOAK)
 - `floor::Union{Nothing,Float64}=nothing`: Optional floor to prevent going below a minimum value
+- `learning_type::String="factory"`: Type of learning curve to apply
+  - "factory": Full learning rate for modular/factory production (Micro/SMR)
+  - "deployment": Half learning rate for sequential project builds (Large reactors)
+
+# Learning Types
+- **Factory Learning**: Full LR applies (standard Wright's Law)
+  - For modular, factory-built reactors (Micro, SMR)
+  - Example: Korean modular construction, NuScale factory production
+
+- **Deployment Learning**: Half LR (LR/2) applies
+  - For large, site-built reactors learning from project-to-project experience
+  - Reflects slower organizational/regulatory learning vs manufacturing
+  - Example: Korean/Chinese large reactor programs (~5% per doubling)
 
 # Returns
-- Multiplier to apply to investment cost (1.0 = SOAK baseline)
+- Multiplier to apply to investment cost (1.0 = baseline)
 
 # Examples
 ```julia
-learning_multiplier(1, 0.10, kappa=1.20)  # FOAK: 1.20 (20% premium)
-learning_multiplier(2, 0.10, kappa=1.20)  # Second unit: ~1.08
-learning_multiplier(4, 0.10, kappa=1.20, floor=1.0)  # Fourth unit: 1.00 (hits SOAK floor)
+learning_multiplier(1, 0.10, kappa=1.00)  # FOAK: 1.00 (no premium)
+learning_multiplier(2, 0.10, kappa=1.00)  # Second unit (factory): 0.90
+learning_multiplier(4, 0.10, kappa=1.00, learning_type="deployment")  # Fourth large unit: ~0.95
+learning_multiplier(12, 0.10, kappa=1.00)  # 12th unit (factory): ~0.68
 ```
 """
-function learning_multiplier(N::Int, LR::Float64; kappa::Float64=1.0, floor::Union{Nothing,Float64}=nothing)
-    m = kappa * (1.0 - LR)^(log2(N))
+function learning_multiplier(N::Int, LR::Float64;
+                           kappa::Float64=1.0,
+                           floor::Union{Nothing,Float64}=nothing,
+                           learning_type::String="factory")
+    # Apply learning rate based on type
+    if learning_type == "deployment"
+        # Deployment learning: Half the learning rate for sequential project builds
+        # Reflects slower learning from project experience vs factory production
+        effective_LR = LR / 2.0
+    else  # "factory"
+        # Factory learning: Full learning rate (standard Wright's Law)
+        # For modular/factory-built reactors
+        effective_LR = LR
+    end
+
+    m = kappa * (1.0 - effective_LR)^(log2(N))
     return isnothing(floor) ? m : max(m, floor)
 end
 
@@ -111,11 +139,21 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
             end
 
     # Apply learning curve multiplier (if requested)
-    # Note: By default, learning is not applied to Large reactors (only SMR/Micro)
-    # since learning-by-duplication is based on factory/serial build rationale
-    if apply_learning && (pj.scale != "Large")
-        m = learning_multiplier(N_unit, LR; kappa=kappa, floor=floor_m)
-        @info("Applying learning curve: N=$N_unit, LR=$LR, κ=$kappa, floor=$floor_m → multiplier=$m")
+    # Learning type depends on reactor scale:
+    #  - Micro/SMR: "factory" learning (full LR from modular production)
+    #  - Large: "deployment" learning (LR/2 from sequential project experience)
+    if apply_learning
+        # Select learning type based on reactor scale
+        learning_type = (pj.scale == "Large") ? "deployment" : "factory"
+
+        m = learning_multiplier(N_unit, LR; kappa=kappa, floor=floor_m, learning_type=learning_type)
+
+        if pj.scale == "Large"
+            @info("Applying deployment learning (LR/2): $(pj.scale) reactor, N=$N_unit, LR=$LR, effective_LR=$(LR/2), κ=$kappa, floor=$floor_m → multiplier=$m")
+        else
+            @info("Applying factory learning (full LR): $(pj.scale) reactor, N=$N_unit, LR=$LR, κ=$kappa, floor=$floor_m → multiplier=$m")
+        end
+
         rand_investment .*= m
     end
 

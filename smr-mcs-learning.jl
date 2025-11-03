@@ -52,10 +52,16 @@ save_npv_files = false  # Default: only save LCOE to reduce clutter
 # - apply_learning: true/false to enable learning curve
 # - N_unit: number of units built (experience level)
 # - LR: learning rate (e.g., 0.10 = 10% cost reduction per doubling)
-# - kappa: FOAK premium multiplier (e.g., 1.20 = 20% above SOAK)
-# - floor_m: minimum multiplier (e.g., 1.0 = SOAK baseline), use nothing for no floor
+#       For Micro/SMR: Full factory learning rate applies
+#       For Large: Deployment learning (LR/2) applied internally based on scale
+# - kappa: FOAK premium multiplier (e.g., 1.00 = FOAK at baseline, 1.20 = 20% above)
+# - floor_m: minimum multiplier (e.g., 1.0 = baseline), use nothing for unlimited learning
 # - tag: label for output files
-
+#
+# Learning Types (automatically selected by reactor scale):
+#   - Factory Learning (Micro/SMR): Full LR from modular/factory production
+#   - Deployment Learning (Large): Half LR (LR/2) from sequential project experience
+#
 # Default scenarios: baseline + three learning rate scenarios
 # κ = 1.0 (FOAK-anchored, no premium), floor = nothing (unlimited learning)
 # This produces 32 files (16 scenarios × 2 LCOE files each)

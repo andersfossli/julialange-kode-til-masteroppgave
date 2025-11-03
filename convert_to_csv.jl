@@ -4,6 +4,53 @@ using CSV
 using Statistics
 
 """
+    country_to_region(country)
+
+Map country names to regional categories for analysis
+"""
+function country_to_region(country)
+    if ismissing(country)
+        return "Unknown"
+    end
+
+    country_str = uppercase(strip(string(country)))
+
+    # East Asia
+    east_asia = ["CHINA", "SOUTH KOREA", "KOREA", "JAPAN", "TAIWAN"]
+
+    # Western
+    western = ["USA", "UNITED STATES", "US", "FRANCE", "UK", "UNITED KINGDOM",
+               "CANADA", "GERMANY", "SPAIN", "ITALY", "BELGIUM", "NETHERLANDS",
+               "SWEDEN", "FINLAND", "SWITZERLAND"]
+
+    # Eastern Europe / Russia
+    eastern_europe = ["RUSSIA", "RUSSIAN FEDERATION", "UKRAINE", "CZECH REPUBLIC",
+                      "SLOVAKIA", "BULGARIA", "ROMANIA", "HUNGARY", "POLAND"]
+
+    # Middle East / South Asia
+    middle_east_south_asia = ["INDIA", "PAKISTAN", "UAE", "SAUDI ARABIA",
+                             "IRAN", "TURKEY", "EGYPT"]
+
+    # South America
+    south_america = ["BRAZIL", "ARGENTINA", "MEXICO"]
+
+    # Check which region
+    if any(occursin(c, country_str) for c in east_asia)
+        return "East Asia"
+    elseif any(occursin(c, country_str) for c in western)
+        return "Western"
+    elseif any(occursin(c, country_str) for c in eastern_europe)
+        return "Eastern Europe"
+    elseif any(occursin(c, country_str) for c in middle_east_south_asia)
+        return "Middle East / South Asia"
+    elseif any(occursin(c, country_str) for c in south_america)
+        return "South America"
+    else
+        return "Other"
+    end
+end
+
+"""
     standardize_reactor_type(reactor_type)
 
 Standardize reactor type names to basic technology categories
@@ -143,6 +190,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     column_mapping = Dict(
         "Project" => :name,
         "Type" => :reactor_type_raw,
+        "Country" => :country,  # New: for regional analysis
         "Capacity (net MWe)" => :capacity_mwe,
         "OCC (USD2020/kW)" => :occ_usd_per_kw,
         "planned Construction time (y)" => :construction_time_planned,
@@ -268,18 +316,33 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         end
     end
 
-    # Column 4: investment (investment cost in USD/MW)
+    # Column 4: country
+    if :country in propertynames(df_work)
+        df_output[!, :country] = df_work[!, :country]
+    else
+        println("Warning: country column not found, using 'Unknown'")
+        df_output[!, :country] = fill("Unknown", nrow(df_work))
+    end
+
+    # Column 5: region (derived from country)
+    println("\n--- Regional Categorization ---")
+    df_output[!, :region] = country_to_region.(df_output[!, :country])
+    println("Regions identified:")
+    println(combine(groupby(df_output, :region), nrow => :count))
+    println()
+
+    # Column 6: investment (investment cost in USD/MW)
     # Convert OCC from USD/kW to USD/MW (multiply by 1000)
     # Note: Simulation code multiplies this by plant_capacity to get total investment
     df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* 1000
 
-    # Column 5: plant_capacity (in MWe)
+    # Column 7: plant_capacity (in MWe)
     df_output[!, :plant_capacity] = df_work[!, :capacity_mwe]
 
-    # Column 6: learning_factor (default 0.1 for all)
+    # Column 8: learning_factor (default 0.1 for all)
     df_output[!, :learning_factor] = fill(0.1, nrow(df_work))
 
-    # Column 7: construction_time
+    # Column 9: construction_time
     # Use ONLY planned construction time (ignore actual build time)
     println("\n--- Construction Time Debug ---")
     if :construction_time_planned in propertynames(df_work)
@@ -293,7 +356,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
     println("Final construction_time values: ", df_output[1:min(5, nrow(df_output)), :construction_time])
 
-    # Column 8: operating_time (lifetime in years)
+    # Column 10: operating_time (lifetime in years)
     println("\n--- Operating Time Debug ---")
     if :lifetime_years in propertynames(df_work)
         println("lifetime_years column exists")
@@ -306,7 +369,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
     println("Final operating_time values: ", df_output[1:min(5, nrow(df_output)), :operating_time])
 
-    # Columns 9-10: loadfactor_lower and loadfactor_upper
+    # Columns 11-12: loadfactor_lower and loadfactor_upper
     # Convert capacity factor from percentage to decimal
     # If capacity factor is provided, use it; otherwise default to 90-95% range
     if :capacity_factor_pct in propertynames(df_work)
@@ -322,7 +385,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         df_output[!, :loadfactor_upper] = fill(0.95, nrow(df_work))
     end
 
-    # Column 11: operating_cost_fix (fixed OPEX in USD/MW-yr)
+    # Column 13: operating_cost_fix (fixed OPEX in USD/MW-yr)
     # Keep as USD/MW-yr - simulation code multiplies by capacity
     if :opex_fixed_usd_per_mw_yr in propertynames(df_work)
         df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr], 500.0)
@@ -330,21 +393,21 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         df_output[!, :operating_cost_fix] = fill(500.0, nrow(df_work))  # Default: 500 USD/MW-yr
     end
 
-    # Column 12: operating_cost_variable (USD/MWh)
+    # Column 14: operating_cost_variable (USD/MWh)
     if :opex_variable_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_variable] = coalesce.(df_work[!, :opex_variable_usd_per_mwh], 2.3326)
     else
         df_output[!, :operating_cost_variable] = fill(2.3326, nrow(df_work))
     end
 
-    # Column 13: operating_cost_fuel (USD/MWh)
+    # Column 15: operating_cost_fuel (USD/MWh)
     if :fuel_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_fuel] = coalesce.(df_work[!, :fuel_usd_per_mwh], 6.0)
     else
         df_output[!, :operating_cost_fuel] = fill(6.0, nrow(df_work))
     end
 
-    # Columns 14-15: reference_pj_investment and reference_pj_capacity
+    # Columns 16-17: reference_pj_investment and reference_pj_capacity
     # Based on reactor type
     reference_investment = Float64[]
     reference_capacity = Float64[]
