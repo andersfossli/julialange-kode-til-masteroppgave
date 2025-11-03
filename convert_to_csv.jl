@@ -6,45 +6,49 @@ using Statistics
 """
     country_to_region(country)
 
-Map country names to regional categories for analysis
+Map country names to regional categories following Weibezahn et al. (2023)
+and OECD-NEA regional groupings for nuclear energy analysis.
 """
 function country_to_region(country)
     if ismissing(country)
-        return "Unknown"
+        return "Other"
     end
 
     country_str = uppercase(strip(string(country)))
 
-    # East Asia
-    east_asia = ["CHINA", "SOUTH KOREA", "KOREA", "JAPAN", "TAIWAN"]
+    # Emerging Asia: China, India, Pakistan, Russia
+    # Note: Russia checked FIRST to ensure it goes to Emerging Asia, not Eastern Europe
+    emerging_asia = ["CHINA", "RUSSIA", "RUSSIAN FEDERATION", "INDIA", "PAKISTAN"]
 
-    # Western
-    western = ["USA", "UNITED STATES", "US", "FRANCE", "UK", "UNITED KINGDOM",
-               "CANADA", "GERMANY", "SPAIN", "ITALY", "BELGIUM", "NETHERLANDS",
-               "SWEDEN", "FINLAND", "SWITZERLAND"]
+    # Western / Developed: USA, Canada, Western Europe, Japan, South Korea
+    western_developed = ["USA", "UNITED STATES", "US", "CANADA",
+                        "UK", "UNITED KINGDOM", "FRANCE", "FINLAND", "SWEDEN",
+                        "GERMANY", "BELGIUM", "NETHERLANDS", "SWITZERLAND",
+                        "ITALY", "SPAIN", "JAPAN", "SOUTH KOREA", "KOREA"]
 
-    # Eastern Europe / Russia
-    eastern_europe = ["RUSSIA", "RUSSIAN FEDERATION", "UKRAINE", "CZECH REPUBLIC",
-                      "SLOVAKIA", "BULGARIA", "ROMANIA", "HUNGARY", "POLAND"]
-
-    # Middle East / South Asia
-    middle_east_south_asia = ["INDIA", "PAKISTAN", "UAE", "SAUDI ARABIA",
-                             "IRAN", "TURKEY", "EGYPT"]
+    # Eastern Europe: Former Soviet bloc (excluding Russia)
+    eastern_europe = ["UKRAINE", "CZECH REPUBLIC", "SLOVAKIA", "HUNGARY",
+                     "POLAND", "BULGARIA", "ROMANIA"]
 
     # South America
-    south_america = ["BRAZIL", "ARGENTINA", "MEXICO"]
+    south_america = ["ARGENTINA", "BRAZIL", "MEXICO", "CHILE"]
 
-    # Check which region
-    if any(occursin(c, country_str) for c in east_asia)
-        return "East Asia"
-    elseif any(occursin(c, country_str) for c in western)
-        return "Western"
+    # Middle East / Africa
+    middle_east_africa = ["UAE", "SAUDI ARABIA", "IRAN", "TURKEY",
+                         "EGYPT", "SOUTH AFRICA"]
+
+    # Check regions in priority order
+    # IMPORTANT: Check Emerging Asia BEFORE Eastern Europe to correctly classify Russia
+    if any(occursin(c, country_str) for c in emerging_asia)
+        return "Emerging Asia"
+    elseif any(occursin(c, country_str) for c in western_developed)
+        return "Western / Developed"
     elseif any(occursin(c, country_str) for c in eastern_europe)
         return "Eastern Europe"
-    elseif any(occursin(c, country_str) for c in middle_east_south_asia)
-        return "Middle East / South Asia"
     elseif any(occursin(c, country_str) for c in south_america)
         return "South America"
+    elseif any(occursin(c, country_str) for c in middle_east_africa)
+        return "Middle East / Africa"
     else
         return "Other"
     end
