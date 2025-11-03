@@ -177,23 +177,27 @@ save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_thr
 
 ##### Regional comparison plots #####
 # Compare LCOE distributions across regions
-# Particularly useful for Large reactors showing East Asia vs Western differences
+# Shows both full dataset and Large reactor specific comparisons
 
 @info("Generating regional comparison plots")
 
-# Side-by-side regional comparison for Large reactors
+# ALL SCALES: Show complete dataset grouped by region
+@info("Generating regional plots for all scales")
+fig_regional_all = Base.invokelatest(mcs_plot_regional, lcoe_results, pjs; scale_filter="All")
+save("$outputpath/fig-regional_comparison_all-$opt_scaling.pdf", fig_regional_all);
+
+fig_regional_combined_all = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="All")
+save("$outputpath/fig-regional_combined_all-$opt_scaling.pdf", fig_regional_combined_all);
+
+# LARGE ONLY: Specific comparison for deployment learning analysis
+@info("Generating regional plots for Large reactors only")
 fig_regional_large = Base.invokelatest(mcs_plot_regional, lcoe_results, pjs; scale_filter="Large")
 save("$outputpath/fig-regional_comparison_large-$opt_scaling.pdf", fig_regional_large);
 
-# Combined violin plot showing all regions
-fig_regional_combined = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="Large")
-save("$outputpath/fig-regional_combined_large-$opt_scaling.pdf", fig_regional_combined);
+fig_regional_combined_large = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="Large")
+save("$outputpath/fig-regional_combined_large-$opt_scaling.pdf", fig_regional_combined_large);
 
-# Optional: Generate for other scales if needed
-# fig_regional_smr = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="SMR")
-# save("$outputpath/fig-regional_combined_smr-$opt_scaling.pdf", fig_regional_smr);
-
-@info("Regional comparison plots saved")
+@info("Regional comparison plots saved (all scales + Large-specific)")
 
 ##### Learning curve plots #####
 # Requires learning scenario files from smr-mcs-learning.jl
