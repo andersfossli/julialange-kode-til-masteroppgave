@@ -95,9 +95,17 @@ The function then generates random project-specific variables based on the opt_s
 Finally, the function returns the generated random variables in the form of a named tuple with four fields: wacc, electricity_price, loadfactor, and investment and their corresponding values.
 """
 function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_price::Vector, pj::project;
-                       apply_learning::Bool=false, N_unit::Int=1, LR::Float64=0.0, kappa::Float64=1.0, floor_m::Union{Nothing,Float64}=nothing)
+                       apply_learning::Bool=false, N_unit::Int=1, LR::Float64=0.0, kappa::Float64=1.0, floor_m::Union{Nothing,Float64}=nothing,
+                       apply_soak_discount::Bool=false)
 
     @info "generating random variables"
+
+    # SOAK discount factor: if not applying, use 1.0 (no discount)
+    soak_factor = apply_soak_discount ? (1 - pj.learning_factor) : 1.0
+
+    if !apply_soak_discount
+        @info("SOAK discount disabled: using manufacturer OCC without learning_factor discount")
+    end
 
     # total time of reactor project, i.e., construction and operating time
     total_time = pj.time[1] + pj.time[2]
@@ -115,26 +123,26 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
                 @info("Large reactor detected: using face value (no scaling applied)")
                 # For large reactors, use manufacturer estimates directly (no scaling)
                 # This keeps large reactor costs at their empirical values
-                rand_investment = pj.investment * pj.plant_capacity * ones(n) * (1-pj.learning_factor)
+                rand_investment = pj.investment * pj.plant_capacity * ones(n) * soak_factor
             elseif opt_scaling == "manufacturer"
                 @info("using manufacturer estimates")
                 # deterministic investment cost based on manufacturer estimates [USD]
-                rand_investment = pj.investment * pj.plant_capacity * ones(n) * (1-pj.learning_factor)
+                rand_investment = pj.investment * pj.plant_capacity * ones(n) * soak_factor
             elseif opt_scaling == "roulstone"
                 @info("using Roulstone scaling")
                 # random investment cost based on Roulstone [USD]
                 rand_scaling = scaling[1] .+ (scaling[2] - scaling[1]) .* rand(n,1)
-                rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) .^ (rand_scaling)
+                rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor * (pj.plant_capacity/pj.reference_pj[2]) .^ (rand_scaling)
             elseif opt_scaling == "rothwell"
                 @info("using Rothwell scaling")
                 # random investment cost based on Rothwell [USD]
                 rand_scaling = 2^(scaling[1]-1) .+ (2^(scaling[2]-1) - 2^(scaling[1]-1)) .* rand(n,1)
-                rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(rand_scaling) ./ log(2))
+                rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(rand_scaling) ./ log(2))
             elseif opt_scaling == "uniform"
                 @info("using uniform scaling")
                 # random investment cost uniform [USD]
                 investment_scaled = pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ (scaling)
-                rand_investment = investment_scaled[1] .+ (investment_scaled[2]-investment_scaled[1]) .* rand(n,1) .* (1-pj.learning_factor)
+                rand_investment = investment_scaled[1] .+ (investment_scaled[2]-investment_scaled[1]) .* rand(n,1) .* soak_factor
             else
                 @error("Option for the scaling method is unknown.")
             end
@@ -249,6 +257,72 @@ function npv_lcoe(disc_res)
 
     return(npv = npv, lcoe = lcoe)
 
+end
+
+"""
+    calculate_vendor_baseline_lcoe(pj::project, wacc_range::Vector, elec_price_range::Vector)
+
+Calculate deterministic vendor baseline LCOE using manufacturer-stated OCC and mean values.
+
+This function performs a single deterministic calculation (not Monte Carlo) using:
+- Manufacturer OCC (pj.investment * pj.plant_capacity) without SOAK discount
+- Mean WACC from the provided range
+- Mean electricity price from the provided range
+- Mean load factor from project data
+
+# Arguments
+- `pj::project`: Project object with manufacturer data
+- `wacc_range::Vector`: [min, max] WACC range
+- `elec_price_range::Vector`: [min, max] electricity price range
+
+# Returns
+- Float64: Deterministic LCOE value in USD/MWh
+
+This represents the vendor's claimed LCOE based on their stated overnight construction cost,
+serving as a reference point for learning curve analysis.
+"""
+function calculate_vendor_baseline_lcoe(pj::project, wacc_range::Vector, elec_price_range::Vector)
+    @info("Calculating vendor baseline LCOE for $(pj.name)")
+
+    # Calculate mean values
+    mean_wacc = mean(wacc_range)
+    mean_elec_price = mean(elec_price_range)
+    mean_loadfactor = mean(pj.loadfactor)
+
+    # Total time
+    total_time = pj.time[1] + pj.time[2]
+
+    # Use manufacturer OCC without SOAK discount
+    investment = pj.investment * pj.plant_capacity
+
+    # O&M costs
+    operating_cost_fix = pj.plant_capacity * pj.operating_cost[1]
+    operating_cost_variable = pj.operating_cost[2] + pj.operating_cost[3]
+
+    # Initialize arrays (single calculation, n=1)
+    disc_cash_out = zeros(Float64, total_time)
+    disc_electricity = zeros(Float64, total_time)
+
+    # Calculation loop
+    for t in 1:total_time
+        if t <= pj.time[1]
+            # Construction period
+            cash_out_t = investment / pj.time[1]
+        else
+            # Operating period
+            electricity_t = pj.plant_capacity * mean_loadfactor * 8760
+            cash_out_t = operating_cost_fix + operating_cost_variable * electricity_t
+            disc_electricity[t] = electricity_t / ((1 + mean_wacc) ^ (t-1))
+        end
+        disc_cash_out[t] = cash_out_t / ((1 + mean_wacc) ^ (t-1))
+    end
+
+    # Calculate LCOE
+    vendor_lcoe = sum(disc_cash_out) / sum(disc_electricity)
+
+    @info("Vendor baseline LCOE for $(pj.name): $(round(vendor_lcoe, digits=2)) USD/MWh")
+
+    return vendor_lcoe
 end
 
 """
