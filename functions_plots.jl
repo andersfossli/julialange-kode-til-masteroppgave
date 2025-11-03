@@ -864,7 +864,7 @@ Create side-by-side boxplots comparing regional LCOE distributions.
 # Arguments
 - `lcoe_results`: DataFrame with LCOE simulation results (columns = reactor names)
 - `pjs`: Vector of project objects containing reactor metadata
-- `scale_filter`: Filter reactors by scale (default: "Large")
+- `scale_filter`: Filter reactors by scale (default: "Large"). Use "All" to show all scales.
 
 # Returns
 - Figure with regional comparison boxplots
@@ -880,8 +880,12 @@ function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
         region = [pj.region for pj in pjs]
     )
 
-    # Filter reactors by scale
-    scale_reactors = filter(row -> row.scale == scale_filter, pjs_dat)
+    # Filter reactors by scale (or show all if scale_filter="All")
+    if scale_filter == "All"
+        scale_reactors = pjs_dat
+    else
+        scale_reactors = filter(row -> row.scale == scale_filter, pjs_dat)
+    end
 
     if nrow(scale_reactors) == 0
         @warn("No reactors found with scale=$scale_filter")
@@ -966,7 +970,7 @@ Create combined violin plots comparing all regions on one axis.
 # Arguments
 - `lcoe_results`: DataFrame with LCOE simulation results
 - `pjs`: Vector of project objects
-- `scale_filter`: Filter reactors by scale (default: "Large")
+- `scale_filter`: Filter reactors by scale (default: "Large"). Use "All" to show all scales.
 
 # Returns
 - Figure with combined regional comparison
@@ -981,8 +985,12 @@ function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
         region = [pj.region for pj in pjs]
     )
 
-    # Filter by scale
-    scale_reactors = filter(row -> row.scale == scale_filter, pjs_dat)
+    # Filter by scale (or show all if scale_filter="All")
+    if scale_filter == "All"
+        scale_reactors = pjs_dat
+    else
+        scale_reactors = filter(row -> row.scale == scale_filter, pjs_dat)
+    end
 
     if nrow(scale_reactors) == 0
         @warn("No reactors found with scale=$scale_filter")
