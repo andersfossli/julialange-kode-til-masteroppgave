@@ -16,6 +16,7 @@ mutable struct project
     name::String                    # investment concept
     type::String                    # investment type
     scale::String                   # reactor scale (Micro/SMR/Large)
+    region::String                  # geographic region (East Asia/Western/etc.)
     investment::Float64             # investment estimate by manufacturer [USD/MW]
     plant_capacity::Float64         # plant capacity [MW]
     learning_factor::Float64        # learning factor
