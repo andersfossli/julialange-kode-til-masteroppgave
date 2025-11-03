@@ -473,7 +473,7 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
     end
 
     # Create figure with 3 subplots
-    fig = Figure(resolution = (1800, 500))
+    fig = Figure(size = (1800, 500))
 
     scale_order = ["Micro", "SMR", "Large"]
     colors = Dict("Micro" => :red, "SMR" => :blue, "Large" => :green)
@@ -893,7 +893,7 @@ function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
     n_regions = length(regions)
 
     # Create figure with panels for each region
-    fig = Figure(resolution=(500 * n_regions, 700))
+    fig = Figure(size=(500 * n_regions, 700))
 
     # Define colors for regions (Weibezahn et al. 2023 / OECD-NEA groupings)
     region_colors = Dict(
@@ -994,7 +994,7 @@ function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
     n_regions = length(regions)
 
     # Create figure
-    fig = Figure(resolution=(1200, 700))
+    fig = Figure(size=(1200, 700))
     ax = Axis(fig[1, 1],
              title="Regional LCOE Comparison: $(scale_filter) Reactors",
              xlabel="Region",
