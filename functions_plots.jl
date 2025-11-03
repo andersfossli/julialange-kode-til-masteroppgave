@@ -855,3 +855,208 @@ function lcoe_threshold_probability_plot(lcoe_results::DataFrame, pjs::Vector;
 
     return fig
 end
+
+"""
+    mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
+
+Create side-by-side boxplots comparing regional LCOE distributions.
+
+# Arguments
+- `lcoe_results`: DataFrame with LCOE simulation results (columns = reactor names)
+- `pjs`: Vector of project objects containing reactor metadata
+- `scale_filter`: Filter reactors by scale (default: "Large")
+
+# Returns
+- Figure with regional comparison boxplots
+
+Creates separate panels for each region showing LCOE distributions
+with regional mean reference lines.
+"""
+function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
+    # Convert pjs to DataFrame for easier filtering
+    pjs_dat = DataFrame(
+        name = [pj.name for pj in pjs],
+        scale = [pj.scale for pj in pjs],
+        region = [pj.region for pj in pjs]
+    )
+
+    # Filter reactors by scale
+    scale_reactors = filter(row -> row.scale == scale_filter, pjs_dat)
+
+    if nrow(scale_reactors) == 0
+        @warn("No reactors found with scale=$scale_filter")
+        return Figure()
+    end
+
+    # Get unique regions
+    regions = unique(scale_reactors.region)
+    n_regions = length(regions)
+
+    # Create figure with panels for each region
+    fig = Figure(resolution=(500 * n_regions, 700))
+
+    # Define colors for regions
+    region_colors = Dict(
+        "East Asia" => :blue,
+        "Western" => :red,
+        "Eastern Europe" => :green,
+        "Middle East / South Asia" => :orange,
+        "South America" => :purple,
+        "Other" => :gray,
+        "Unknown" => :lightgray
+    )
+
+    # Plot each region
+    for (col_idx, region) in enumerate(regions)
+        region_reactors = filter(row -> row.region == region, scale_reactors)
+        reactor_names = region_reactors.name
+
+        if length(reactor_names) == 0
+            continue
+        end
+
+        # Create axis for this region
+        ax = Axis(fig[1, col_idx],
+                 title="$region $(scale_filter) Reactors",
+                 xlabel="Reactor",
+                 ylabel="LCOE [USD/MWh]",
+                 xticks=(1:length(reactor_names), reactor_names),
+                 xticklabelrotation=π/4)
+
+        ax.xticklabelsize = 10
+
+        # Plot boxplots for each reactor in this region
+        for (i, reactor_name) in enumerate(reactor_names)
+            if reactor_name in names(lcoe_results)
+                reactor_lcoe = lcoe_results[!, reactor_name]
+                color = get(region_colors, region, :gray)
+                boxplot!(ax, fill(i, length(reactor_lcoe)), reactor_lcoe,
+                        color=(color, 0.5), strokecolor=color, strokewidth=2,
+                        whiskerwidth=0.5, width=0.6)
+            end
+        end
+
+        # Add regional mean line
+        region_lcoe_vectors = [lcoe_results[!, name] for name in reactor_names if name in names(lcoe_results)]
+        if !isempty(region_lcoe_vectors)
+            region_all_lcoe = vcat(region_lcoe_vectors...)
+            region_mean = mean(region_all_lcoe)
+            hlines!(ax, [region_mean], color=:black, linestyle=:dash, linewidth=2,
+                   label="Regional Mean: $(round(region_mean, digits=1)) USD/MWh")
+
+            # Add legend
+            axislegend(ax, position=:rt)
+        end
+
+        # Grid
+        ax.ygridvisible = true
+    end
+
+    # Add overall title
+    Label(fig[0, :], "Regional LCOE Comparison: $(scale_filter) Reactors",
+          fontsize=20, font="Noto Sans Bold")
+
+    return fig
+end
+
+"""
+    mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
+
+Create combined violin plots comparing all regions on one axis.
+
+# Arguments
+- `lcoe_results`: DataFrame with LCOE simulation results
+- `pjs`: Vector of project objects
+- `scale_filter`: Filter reactors by scale (default: "Large")
+
+# Returns
+- Figure with combined regional comparison
+
+Shows all regions on same axis for direct comparison.
+"""
+function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
+    # Convert pjs to DataFrame
+    pjs_dat = DataFrame(
+        name = [pj.name for pj in pjs],
+        scale = [pj.scale for pj in pjs],
+        region = [pj.region for pj in pjs]
+    )
+
+    # Filter by scale
+    scale_reactors = filter(row -> row.scale == scale_filter, pjs_dat)
+
+    if nrow(scale_reactors) == 0
+        @warn("No reactors found with scale=$scale_filter")
+        return Figure()
+    end
+
+    # Get unique regions
+    regions = sort(unique(scale_reactors.region))
+    n_regions = length(regions)
+
+    # Create figure
+    fig = Figure(resolution=(1200, 700))
+    ax = Axis(fig[1, 1],
+             title="Regional LCOE Comparison: $(scale_filter) Reactors",
+             xlabel="Region",
+             ylabel="LCOE [USD/MWh]",
+             xticks=(1:n_regions, regions),
+             xticklabelrotation=π/6)
+
+    # Define colors
+    region_colors = Dict(
+        "East Asia" => :blue,
+        "Western" => :red,
+        "Eastern Europe" => :green,
+        "Middle East / South Asia" => :orange,
+        "South America" => :purple,
+        "Other" => :gray,
+        "Unknown" => :lightgray
+    )
+
+    # Collect data for each region
+    regional_means = Float64[]
+    regional_stds = Float64[]
+
+    for (i, region) in enumerate(regions)
+        region_reactors = filter(row -> row.region == region, scale_reactors)
+        reactor_names = region_reactors.name
+
+        # Collect all LCOE values for this region
+        region_lcoe_vectors = [lcoe_results[!, name] for name in reactor_names if name in names(lcoe_results)]
+
+        if !isempty(region_lcoe_vectors)
+            region_all_lcoe = vcat(region_lcoe_vectors...)
+            color = get(region_colors, region, :gray)
+
+            # Violin plot
+            violin!(ax, fill(i, length(region_all_lcoe)), region_all_lcoe,
+                   color=(color, 0.3), strokecolor=color, strokewidth=2,
+                   width=0.8)
+
+            # Overlay boxplot
+            boxplot!(ax, fill(i, length(region_all_lcoe)), region_all_lcoe,
+                    color=(color, 0.6), strokecolor=color, strokewidth=2,
+                    whiskerwidth=0.5, width=0.3)
+
+            # Store statistics
+            push!(regional_means, mean(region_all_lcoe))
+            push!(regional_stds, std(region_all_lcoe))
+        end
+    end
+
+    # Add mean markers
+    if !isempty(regional_means)
+        scatter!(ax, 1:length(regional_means), regional_means,
+                color=:black, marker=:diamond, markersize=15,
+                label="Regional Mean")
+
+        # Add legend
+        axislegend(ax, position=:rt)
+    end
+
+    # Grid
+    ax.ygridvisible = true
+
+    return fig
+end

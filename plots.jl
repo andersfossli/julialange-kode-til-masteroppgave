@@ -175,6 +175,26 @@ lcoe_thresholds = collect(0.0:20.0:300.0)  # Float64 values required
 fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
 
+##### Regional comparison plots #####
+# Compare LCOE distributions across regions
+# Particularly useful for Large reactors showing East Asia vs Western differences
+
+@info("Generating regional comparison plots")
+
+# Side-by-side regional comparison for Large reactors
+fig_regional_large = Base.invokelatest(mcs_plot_regional, lcoe_results, pjs; scale_filter="Large")
+save("$outputpath/fig-regional_comparison_large-$opt_scaling.pdf", fig_regional_large);
+
+# Combined violin plot showing all regions
+fig_regional_combined = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="Large")
+save("$outputpath/fig-regional_combined_large-$opt_scaling.pdf", fig_regional_combined);
+
+# Optional: Generate for other scales if needed
+# fig_regional_smr = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="SMR")
+# save("$outputpath/fig-regional_combined_smr-$opt_scaling.pdf", fig_regional_smr);
+
+@info("Regional comparison plots saved")
+
 ##### Learning curve plots #####
 # Requires learning scenario files from smr-mcs-learning.jl
 # These plots are only generated if the learning CSV files exist
