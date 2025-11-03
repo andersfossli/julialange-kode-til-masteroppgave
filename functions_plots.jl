@@ -859,7 +859,7 @@ end
 """
     mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
 
-Create side-by-side boxplots comparing regional LCOE distributions.
+Create side-by-side percentile range plots comparing regional LCOE distributions.
 
 # Arguments
 - `lcoe_results`: DataFrame with LCOE simulation results (columns = reactor names)
@@ -867,10 +867,17 @@ Create side-by-side boxplots comparing regional LCOE distributions.
 - `scale_filter`: Filter reactors by scale (default: "Large"). Use "All" to show all scales.
 
 # Returns
-- Figure with regional comparison boxplots
+- Figure with regional comparison using percentile ranges
 
-Creates separate panels for each region showing LCOE distributions
-with regional mean reference lines.
+Creates separate panels for each region showing:
+- Light colored band: 10th-90th percentile range
+- Dark colored band: 25th-75th percentile range (IQR)
+- Black horizontal line: Median
+- Colored diamond: Mean
+
+Follows methodology from Weibezahn et al. (2023), OECD-NEA (2020), and
+Lovering et al. (2016) using percentile bands instead of full ranges
+to avoid visualization issues from extreme tails.
 """
 function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
     # Convert pjs to DataFrame for easier filtering
@@ -928,14 +935,38 @@ function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
 
         ax.xticklabelsize = 10
 
-        # Plot boxplots for each reactor in this region
+        # Plot percentile ranges for each reactor (following Weibezahn et al. 2023, OECD-NEA)
+        # Shows 10th-90th percentile (outer) and 25th-75th percentile (IQR, inner)
         for (i, reactor_name) in enumerate(reactor_names)
             if reactor_name in names(lcoe_results)
                 reactor_lcoe = lcoe_results[!, reactor_name]
                 color = get(region_colors, region, :gray)
-                boxplot!(ax, fill(i, length(reactor_lcoe)), reactor_lcoe,
-                        color=(color, 0.5), strokecolor=color, strokewidth=2,
-                        whiskerwidth=0.5, width=0.6)
+
+                # Calculate percentiles
+                p10 = quantile(reactor_lcoe, 0.10)
+                p25 = quantile(reactor_lcoe, 0.25)
+                p50 = quantile(reactor_lcoe, 0.50)  # median
+                p75 = quantile(reactor_lcoe, 0.75)
+                p90 = quantile(reactor_lcoe, 0.90)
+                reactor_mean = mean(reactor_lcoe)
+
+                # 10th-90th percentile range (outer, lighter)
+                rangebars!(ax, [i], [p10], [p90],
+                          color=(color, 0.3), linewidth=8,
+                          whiskerwidth=8, direction=:y)
+
+                # 25th-75th percentile range (IQR, darker)
+                rangebars!(ax, [i], [p25], [p75],
+                          color=(color, 0.7), linewidth=8,
+                          whiskerwidth=8, direction=:y)
+
+                # Median marker
+                scatter!(ax, [i], [p50], color=:black, marker=:hline,
+                        markersize=15, strokewidth=2)
+
+                # Mean marker (diamond)
+                scatter!(ax, [i], [reactor_mean], color=color, marker=:diamond,
+                        markersize=12, strokecolor=:black, strokewidth=1)
             end
         end
 
@@ -959,13 +990,17 @@ function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
     Label(fig[0, :], "Regional LCOE Comparison: $(scale_filter) Reactors",
           fontsize=20, font="Noto Sans Bold")
 
+    # Add explanation subtitle
+    Label(fig[0, :, Top()], "Bands show 10th-90th (light) and 25th-75th (dark) percentiles. Black line = median, diamond = mean.",
+          fontsize=12, padding=(0, 0, 5, 0))
+
     return fig
 end
 
 """
     mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
 
-Create combined violin plots comparing all regions on one axis.
+Create combined percentile range plot comparing all regions on one axis.
 
 # Arguments
 - `lcoe_results`: DataFrame with LCOE simulation results
@@ -975,7 +1010,14 @@ Create combined violin plots comparing all regions on one axis.
 # Returns
 - Figure with combined regional comparison
 
-Shows all regions on same axis for direct comparison.
+Shows all regions on same axis for direct comparison using:
+- Light colored band: 10th-90th percentile range
+- Dark colored band: 25th-75th percentile range (IQR)
+- Black horizontal line: Median
+- Black diamond: Mean
+
+Follows methodology from Weibezahn et al. (2023), OECD-NEA (2020), and
+Lovering et al. (2016) to show meaningful ranges without extreme outliers.
 """
 function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
     # Convert pjs to DataFrame
@@ -1035,18 +1077,32 @@ function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
             region_all_lcoe = vcat(region_lcoe_vectors...)
             color = get(region_colors, region, :gray)
 
-            # Violin plot
-            violin!(ax, fill(i, length(region_all_lcoe)), region_all_lcoe,
-                   color=(color, 0.3), strokecolor=color, strokewidth=2,
-                   width=0.8)
+            # Calculate percentiles (following Weibezahn et al. 2023, OECD-NEA 2020)
+            p10 = quantile(region_all_lcoe, 0.10)
+            p25 = quantile(region_all_lcoe, 0.25)
+            p50 = quantile(region_all_lcoe, 0.50)  # median
+            p75 = quantile(region_all_lcoe, 0.75)
+            p90 = quantile(region_all_lcoe, 0.90)
+            region_mean = mean(region_all_lcoe)
 
-            # Overlay boxplot
-            boxplot!(ax, fill(i, length(region_all_lcoe)), region_all_lcoe,
-                    color=(color, 0.6), strokecolor=color, strokewidth=2,
-                    whiskerwidth=0.5, width=0.3)
+            # 10th-90th percentile range (outer band, lighter)
+            rangebars!(ax, [i], [p10], [p90],
+                      color=(color, 0.3), linewidth=30,
+                      whiskerwidth=15, direction=:y)
+
+            # 25th-75th percentile range (IQR, inner band, darker)
+            rangebars!(ax, [i], [p25], [p75],
+                      color=(color, 0.7), linewidth=30,
+                      whiskerwidth=15, direction=:y)
+
+            # Median line
+            scatter!(ax, [i], [p50], color=:black, marker=:hline,
+                    markersize=25, strokewidth=3)
+
+            # Mean marker (diamond) - will be added separately below
 
             # Store statistics
-            push!(regional_means, mean(region_all_lcoe))
+            push!(regional_means, region_mean)
             push!(regional_stds, std(region_all_lcoe))
         end
     end
@@ -1063,6 +1119,10 @@ function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
 
     # Grid
     ax.ygridvisible = true
+
+    # Add explanation text
+    Label(fig[0, :], "Bands show 10th-90th (light) and 25th-75th (dark) percentiles. Black line = median, diamond = mean.",
+          fontsize=12, tellwidth=false)
 
     return fig
 end
