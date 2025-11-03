@@ -895,15 +895,14 @@ function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
     # Create figure with panels for each region
     fig = Figure(resolution=(500 * n_regions, 700))
 
-    # Define colors for regions
+    # Define colors for regions (Weibezahn et al. 2023 / OECD-NEA groupings)
     region_colors = Dict(
-        "East Asia" => :blue,
-        "Western" => :red,
+        "Western / Developed" => :blue,
+        "Emerging Asia" => :red,
         "Eastern Europe" => :green,
-        "Middle East / South Asia" => :orange,
         "South America" => :purple,
-        "Other" => :gray,
-        "Unknown" => :lightgray
+        "Middle East / Africa" => :orange,
+        "Other" => :gray
     )
 
     # Plot each region
@@ -1003,15 +1002,14 @@ function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
              xticks=(1:n_regions, regions),
              xticklabelrotation=π/6)
 
-    # Define colors
+    # Define colors (Weibezahn et al. 2023 / OECD-NEA groupings)
     region_colors = Dict(
-        "East Asia" => :blue,
-        "Western" => :red,
+        "Western / Developed" => :blue,
+        "Emerging Asia" => :red,
         "Eastern Europe" => :green,
-        "Middle East / South Asia" => :orange,
         "South America" => :purple,
-        "Other" => :gray,
-        "Unknown" => :lightgray
+        "Middle East / Africa" => :orange,
+        "Other" => :gray
     )
 
     # Collect data for each region
