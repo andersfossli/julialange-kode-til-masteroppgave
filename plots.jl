@@ -272,10 +272,13 @@ end
 
 @info("Generating WACC sensitivity plot")
 
-# Define WACC range for sensitivity analysis (3% to 12% in 1% steps)
-wacc_sensitivity_range = 0.03:0.01:0.12
+# Define WACC range for sensitivity analysis (0% to 15% in 1% steps)
+# Note: This requires NEW simulations because we need fixed WACC at each point,
+# whereas the main simulation uses random WACC in range [4%, 10%]
+wacc_sensitivity_range = 0.00:0.01:0.15
 
-# Generate the plot (uses fewer simulations for speed: 5000 per WACC point)
+# Generate the plot (uses fewer simulations for speed: 3000 per WACC point)
+# Total runs: 16 WACC points × ~15 reactors × 3000 sims = ~720k simulations
 fig_wacc_sensitivity = Base.invokelatest(
     wacc_sensitivity_plot,
     pjs,
@@ -283,7 +286,7 @@ fig_wacc_sensitivity = Base.invokelatest(
     wacc_sensitivity_range,
     electricity_price_mean,
     construction_time_ranges;
-    n=5000  # Reduced from 10000 for faster computation
+    n=3000  # Reduced for faster computation while maintaining accuracy
 )
 
 save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
