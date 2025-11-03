@@ -369,7 +369,10 @@ The function then calculates the net present value (NPV) and the levelized cost 
 The function then returns the results of the simulation in the form of the res variable.
 """
 function investment_simulation(pj::project, rand_vars)
-   
+
+    # Infer n from rand_vars size (instead of using global n)
+    n = length(rand_vars.wacc)
+
     # run the Monte Carlo simulation
     disc_res = mc_run(n, pj, rand_vars)
 
