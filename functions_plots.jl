@@ -5,39 +5,31 @@ The function then creates a new figure object and defines the x-axis label and y
 The function then plots the investment values using three different plot types: scatter for the manufacturer's investment values, and rangebars for the other two project's investment values. The rangebars represent the minimum and maximum investment values for each project.
 Finally, the function adds a legend to the plot and returns the figure object.
 """
-function investment_plot(pjs, scaling_plot)
-
-    scaled_investments = DataFrame();
-
-    # generate bounds for scaled investment values for all projects
-    for p in eachindex(pjs)
-        scaled_investments.res = gen_scaled_investment(scaling_plot, pjs[p])
-        rename!(scaled_investments,:res => pjs[p].name)
-    end
-
-    # define plot
-    xlabel = "[USD/MW]";
-    yticks = names(scaled_investments);
-
-    fig_invest_comparison = Figure();
-
-    ax_invest = Axis(fig_invest_comparison[1,1], yticks = (1:length(yticks), yticks), xscale = log10, xlabel = xlabel);
-
-    rothwell = rangebars!(ax_invest, 1.2:length(yticks)+0.2, collect(scaled_investments[5,:]), collect(scaled_investments[4,:]), linewidth = 6, whiskerwidth = 12, direction = :x, transparency = :true, color = :green)
-    roulstone = rangebars!(ax_invest, 1:length(yticks), collect(scaled_investments[3,:]), collect(scaled_investments[2,:]), linewidth = 6, whiskerwidth = 12, direction = :x, transparency = :true, color = :darkblue)
-    manufacturer = scatter!(ax_invest, collect(scaled_investments[1,:]), 1:length(yticks), marker = :star5, color = :red)
-
-    Legend(fig_invest_comparison[1, 1],
-        [manufacturer, roulstone, rothwell],
-        ["Manufacturer", "Roulstone", "Rothwell"],
-        tellheight = false,
-        tellwidth = false,
-        halign = :right, valign = :bottom,
-        framevisible = false, orientation = :vertical)
-
-    return fig_invest_comparison
-
-end
+# DEAD CODE: Commented out - replaced by investment_plot_by_scale()
+# This function showed all 15 reactors in one plot (too crowded)
+# The new function groups by scale (Micro/SMR/Large) for better visualization
+# function investment_plot(pjs, scaling_plot)
+#     scaled_investments = DataFrame();
+#     for p in eachindex(pjs)
+#         scaled_investments.res = gen_scaled_investment(scaling_plot, pjs[p])
+#         rename!(scaled_investments,:res => pjs[p].name)
+#     end
+#     xlabel = "[USD/MW]";
+#     yticks = names(scaled_investments);
+#     fig_invest_comparison = Figure();
+#     ax_invest = Axis(fig_invest_comparison[1,1], yticks = (1:length(yticks), yticks), xscale = log10, xlabel = xlabel);
+#     rothwell = rangebars!(ax_invest, 1.2:length(yticks)+0.2, collect(scaled_investments[5,:]), collect(scaled_investments[4,:]), linewidth = 6, whiskerwidth = 12, direction = :x, transparency = :true, color = :green)
+#     roulstone = rangebars!(ax_invest, 1:length(yticks), collect(scaled_investments[3,:]), collect(scaled_investments[2,:]), linewidth = 6, whiskerwidth = 12, direction = :x, transparency = :true, color = :darkblue)
+#     manufacturer = scatter!(ax_invest, collect(scaled_investments[1,:]), 1:length(yticks), marker = :star5, color = :red)
+#     Legend(fig_invest_comparison[1, 1],
+#         [manufacturer, roulstone, rothwell],
+#         ["Manufacturer", "Roulstone", "Rothwell"],
+#         tellheight = false,
+#         tellwidth = false,
+#         halign = :right, valign = :bottom,
+#         framevisible = false, orientation = :vertical)
+#     return fig_invest_comparison
+# end
 
 """
 The hist_invest_plot function generates a histogram plot of the investment values of a given project for a specified number of trials. The function takes in six arguments:

@@ -50,36 +50,45 @@ fig_invest_comparison_by_scale = Base.invokelatest(investment_plot_by_scale, pjs
 save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison_by_scale);
 
 ##### histogram plots for comparison of estimation approaches #####
+# OPTIONAL: These plots compare Roulstone vs Rothwell scaling methods
+# WARNING: Requires regenerating investment data (300k additional simulations)
+# Uncomment only if you need methodological comparison between scaling approaches
 
-hist_invest = Figure();
+# hist_invest = Figure();
+#
+# for i in 1:3, j in 1:5
+#     hist_invest_plot(n, wacc, electricity_price_mean, pjs[j+5*(i-1)], i, j, hist_invest)
+# end
+#
+# Legend(hist_invest[4,1:5],
+#     [roulstone, rothwell],
+#     ["Roulstone", "Rothwell"],
+#     framevisible = false, orientation = :horizontal)
+#
+# hist_invest
+# save("$outputpath/fig-histogram_investment.pdf", hist_invest);
 
-for i in 1:3, j in 1:5
-    hist_invest_plot(n, wacc, electricity_price_mean, pjs[j+5*(i-1)], i, j, hist_invest)
-end
-
-Legend(hist_invest[4,1:5],
-    [roulstone, rothwell],
-    ["Roulstone", "Rothwell"],
-    framevisible = false, orientation = :horizontal)
-
-hist_invest
-save("$outputpath/fig-histogram_investment.pdf", hist_invest);
+@info("Skipping histogram plots (commented out - saves 300k simulations). Uncomment if needed for scaling method comparison.")
 
 ##### probability density plots for comparison of estimation approaches #####
+# OPTIONAL: Same as histograms above - only needed for methodological comparison
+# WARNING: Requires regenerating investment data (300k additional simulations)
 
-density_invest = Figure();
+# density_invest = Figure();
+#
+# for i in 1:3, j in 1:5
+#     density_invest_plot(n, wacc, electricity_price_mean, pjs[j+5*(i-1)], i, j, density_invest)
+# end
+#
+# Legend(density_invest[4,1:5],
+#     [roulstone, rothwell],
+#     ["Roulstone", "Rothwell"],
+#     framevisible = false, orientation = :horizontal)
+#
+# density_invest
+# save("$outputpath/fig-density_investment.pdf", density_invest);
 
-for i in 1:3, j in 1:5
-    density_invest_plot(n, wacc, electricity_price_mean, pjs[j+5*(i-1)], i, j, density_invest)
-end
-
-Legend(density_invest[4,1:5],
-    [roulstone, rothwell],
-    ["Roulstone", "Rothwell"],
-    framevisible = false, orientation = :horizontal)
-
-density_invest
-save("$outputpath/fig-density_investment.pdf", density_invest);
+@info("Skipping density plots (commented out - saves 300k simulations). Uncomment if needed for scaling method comparison.");
 
 ##### boxplots Monte Carlo simulation results #####
 # requires results for all 15 reactor concepts
@@ -92,12 +101,7 @@ save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
 
 ##### heatmaps sensitivity indices #####
 # requires sensitvity results
-
-# Original plots (all reactors - may be too crowded)
-# fig_si_npv = si_plot(si_npv_results, "NPV")
-# fig_si_lcoe = si_plot(si_lcoe_results, "LCOE")
-# save("$outputpath/fig-si_npv-$opt_scaling.pdf", fig_si_npv);
-# save("$outputpath/fig-si_lcoe-$opt_scaling.pdf", fig_si_lcoe);
+# Note: si_plot() was replaced by si_plot_by_scale() below for better organization
 
 # New: Grouped by scale (Micro/SMR/Large)
 # Use Base.invokelatest to avoid Julia 1.12 world age issues
