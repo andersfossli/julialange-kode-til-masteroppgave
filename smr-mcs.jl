@@ -49,7 +49,9 @@ include("data.jl");
         @info("using scaling option $opt_scaling")
     else
         # define scaling option locally
-        opt_scaling = opts_scaling[2];
+        # Index: 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
+        opt_scaling = opts_scaling[5];  # Changed to Carelli scaling
+        @info("Using Carelli scaling (scale-independent normalization)")
     end
 
 ##### run simulation #####
