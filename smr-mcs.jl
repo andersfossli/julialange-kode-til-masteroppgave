@@ -36,22 +36,25 @@ include("data.jl");
     );
 
     # scaling
-        # scaling options
+        # scaling options: 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
         opts_scaling = ["manufacturer", "roulstone", "rothwell", "uniform", "carelli"];
         # scaling parameter, lower and upper bound of random variable
         # Note: carelli scaling doesn't use this parameter (uses fixed β=0.20, P_ref=1200 MWe)
         scaling = [0.20, 0.75];
 
+    # CONFIGURATION: Select scaling method for interactive runs
+    # For cluster jobs, this is overridden by: julia job.jl <index>
+    local_scaling_index = 2;  # 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
+
     # choose scaling option
     if @isdefined(par_job) == true
-        # read scaling option from job script parameter
+        # Cluster job mode: read scaling option from job script parameter
         opt_scaling = opts_scaling[par_job];
-        @info("using scaling option $opt_scaling")
+        @info("Cluster job mode: using scaling option $opt_scaling (index $par_job)")
     else
-        # define scaling option locally
-        # Index: 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
-        opt_scaling = opts_scaling[5];  # Changed to Carelli scaling
-        @info("Using Carelli scaling (scale-independent normalization)")
+        # Interactive mode: use local configuration
+        opt_scaling = opts_scaling[local_scaling_index];
+        @info("Interactive mode: using scaling option $opt_scaling (index $local_scaling_index)")
     end
 
 ##### run simulation #####
