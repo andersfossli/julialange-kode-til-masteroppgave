@@ -272,22 +272,20 @@ end
 
 @info("Generating WACC sensitivity plot")
 
-# Define WACC range for sensitivity analysis (0% to 15% in 1% steps)
-# Note: This requires NEW simulations because we need fixed WACC at each point,
-# whereas the main simulation uses random WACC in range [4%, 10%]
-wacc_sensitivity_range = 0.00:0.01:0.15
+# Define WACC bin centers for sensitivity analysis
+# Main simulation uses WACC range [4%, 10%], so we bin within this range
+# Bins: 4%, 5%, 6%, 7%, 8%, 9%, 10% (each bin is ±0.5% around center)
+wacc_bin_centers = 4:1:10
 
-# Generate the plot (uses fewer simulations for speed: 3000 per WACC point)
-# Total runs: 16 WACC points × ~15 reactors × 3000 sims = ~720k simulations
+# NEW APPROACH: Bin existing results instead of re-running simulations
+# This eliminates 720k simulation re-runs (6× speedup)
 fig_wacc_sensitivity = Base.invokelatest(
     wacc_sensitivity_plot,
-    pjs,
+    outputpath,
     opt_scaling,
-    wacc_sensitivity_range,
-    electricity_price_mean,
-    construction_time_ranges;
-    n=3000  # Reduced for faster computation while maintaining accuracy
+    pjs_dat,  # DataFrame with reactor metadata
+    wacc_bin_centers
 )
 
 save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
-@info("WACC sensitivity plot saved")
+@info("WACC sensitivity plot saved (0 new simulations, used existing data)")

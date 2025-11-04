@@ -3,6 +3,8 @@
 # initialize result variables
 npv_results = DataFrame();
 lcoe_results = DataFrame();
+wacc_values = DataFrame();  # NEW: Store WACC values for sensitivity plots
+investment_values = DataFrame();  # NEW: Store investment values for histogram plots
 
 # run simulation for all projects
 for p in eachindex(pjs)
@@ -19,6 +21,14 @@ for p in eachindex(pjs)
     rename!(npv_results,:res => pjs[p].name)
     lcoe_results.res = vec(results[2])
     rename!(lcoe_results,:res => pjs[p].name)
+
+    # NEW: Save WACC values (for WACC sensitivity plot - avoids re-running 720k simulations)
+    wacc_values.res = vec(rand_vars.wacc)
+    rename!(wacc_values,:res => pjs[p].name)
+
+    # NEW: Save investment values (for histogram plots - avoids regenerating data)
+    investment_values.res = vec(rand_vars.investment)
+    rename!(investment_values,:res => pjs[p].name)
 end
 
 # summary statistics
@@ -30,6 +40,11 @@ CSV.write("$outputpath/mcs-npv_results-$opt_scaling.csv", npv_results);
 CSV.write("$outputpath/mcs-npv_summary-$opt_scaling.csv", npv_summary[!,1:8]);
 CSV.write("$outputpath/mcs-lcoe_results-$opt_scaling.csv", lcoe_results);
 CSV.write("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", lcoe_summary[!,1:8]);
+
+# NEW: Save WACC and investment values for efficient plotting
+CSV.write("$outputpath/mcs-wacc_values-$opt_scaling.csv", wacc_values);
+CSV.write("$outputpath/mcs-investment_values-$opt_scaling.csv", investment_values);
+@info("Saved WACC and investment values for efficient plotting")
 
 ##### sensitivity analysis #####
 
