@@ -44,7 +44,7 @@ include("data.jl");
 
     # CONFIGURATION: Select scaling method for interactive runs
     # For cluster jobs, this is overridden by: julia job.jl <index>
-    local_scaling_index = 2;  # 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
+    local_scaling_index = 3;  # 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
 
     # choose scaling option
     if @isdefined(par_job) == true
