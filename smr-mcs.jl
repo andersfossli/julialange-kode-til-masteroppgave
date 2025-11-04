@@ -37,8 +37,9 @@ include("data.jl");
 
     # scaling
         # scaling options
-        opts_scaling = ["manufacturer", "roulstone", "rothwell", "uniform"];
+        opts_scaling = ["manufacturer", "roulstone", "rothwell", "uniform", "carelli"];
         # scaling parameter, lower and upper bound of random variable
+        # Note: carelli scaling doesn't use this parameter (uses fixed β=0.20, P_ref=1200 MWe)
         scaling = [0.20, 0.75];
 
     # choose scaling option
