@@ -22,11 +22,12 @@ ylims!(-2, 1)
 
 roulstone = lines!(x, y, label = "Roulstone", linewidth = 3, color = :darkblue);
 rothwell = lines!(x, z, label = "Rothwell", linewidth = 3, color = :green);
+carelli = hlines!(ax_theory, [0.20], label = "Carelli", linewidth = 3, color = :orange, linestyle = :dash);
 hlines!(ax_theory, [0], color = :gray);
 
 Legend(fig_theory[1, 1],
-    [roulstone, rothwell],
-    [L"β^\text{Roulstone}", L"β^\text{Rothwell}"],
+    [roulstone, rothwell, carelli],
+    [L"β^\text{Roulstone}", L"β^\text{Rothwell}", L"β^\text{Carelli}"],
     tellheight = false,
     tellwidth = false,
     halign = :right, valign = :bottom,
