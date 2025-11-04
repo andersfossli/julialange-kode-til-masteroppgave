@@ -1129,70 +1129,78 @@ end
 
 
 """
-    wacc_sensitivity_plot(pjs, opt_scaling, wacc_range, electricity_price_mean, construction_time_ranges; n=10000)
+    wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_centers)
 
 Creates a WACC sensitivity plot showing how median LCOE varies with discount rate for different reactor scales.
 
+**EFFICIENT VERSION:** Bins existing simulation results instead of re-running 720k simulations.
+
 Arguments:
-- `pjs`: Vector of project objects
-- `opt_scaling`: Scaling option to use (e.g., "roulstone")
-- `wacc_range`: Vector of WACC values to test (e.g., 0.03:0.01:0.12)
-- `electricity_price_mean`: Mean electricity price [USD/MWh]
-- `construction_time_ranges`: Dict mapping scale to construction time range
-- `n`: Number of Monte Carlo simulations per WACC point (default: 10000)
+- `outputpath`: Path to directory containing CSV results
+- `opt_scaling`: Scaling option (e.g., "roulstone")
+- `pjs_dat`: DataFrame with reactor metadata (name, scale)
+- `wacc_bin_centers`: Vector of WACC percentages for bin centers (e.g., 0:1:15 for 0%, 1%, ..., 15%)
 
 Returns:
 - Figure with WACC (%) vs median LCOE (USD/MWh) for Micro, SMR, and Large reactors
 """
-function wacc_sensitivity_plot(pjs, opt_scaling, wacc_range, electricity_price_mean, construction_time_ranges; n=10000)
+function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_centers)
 
-    @info("Generating WACC sensitivity analysis...")
+    @info("Generating WACC sensitivity plot from existing results (0 new simulations)")
 
-    # Storage for results
+    # Read saved results
+    lcoe_results = CSV.read("$outputpath/mcs-lcoe_results-$opt_scaling.csv", DataFrame)
+    wacc_values = CSV.read("$outputpath/mcs-wacc_values-$opt_scaling.csv", DataFrame)
+
+    # Storage for binned results
     wacc_percentages = Float64[]
     micro_median_lcoe = Float64[]
     smr_median_lcoe = Float64[]
     large_median_lcoe = Float64[]
 
-    # For each WACC value
-    for wacc_val in wacc_range
-        @info("  Testing WACC = $(round(wacc_val*100, digits=1))%")
+    # For each WACC bin center
+    for wacc_pct in wacc_bin_centers
+        @info("  Binning WACC = $(wacc_pct)%")
 
-        # Storage for this WACC point
-        micro_lcoe_all = Float64[]
-        smr_lcoe_all = Float64[]
-        large_lcoe_all = Float64[]
+        # Define bin edges (±0.5% around center)
+        wacc_lower = (wacc_pct - 0.5) / 100.0
+        wacc_upper = (wacc_pct + 0.5) / 100.0
 
-        # Run simulation for each reactor with this WACC
-        for pj in pjs
-            # Get construction time range for this scale
-            construction_time_range = construction_time_ranges[pj.scale]
+        # Storage for this bin
+        micro_lcoe_bin = Float64[]
+        smr_lcoe_bin = Float64[]
+        large_lcoe_bin = Float64[]
 
-            # Generate random variables with fixed WACC (narrow range around point)
-            wacc_fixed = [wacc_val, wacc_val]  # Same value for min and max = deterministic
+        # For each reactor
+        for (idx, reactor_name) in enumerate(names(lcoe_results))
+            # Get reactor scale
+            scale = pjs_dat[pjs_dat.name .== reactor_name, :scale][1]
 
-            rand_vars = gen_rand_vars(opt_scaling, n, wacc_fixed, electricity_price_mean, pj;
-                                     construction_time_range=construction_time_range)
+            # Get WACC and LCOE values for this reactor
+            reactor_wacc = wacc_values[!, reactor_name]
+            reactor_lcoe = lcoe_results[!, reactor_name]
 
-            # Run simulation
-            results = investment_simulation(pj, rand_vars)
-            lcoe_values = vec(results[2])  # Extract LCOE results
+            # Filter to this WACC bin
+            in_bin = (reactor_wacc .>= wacc_lower) .& (reactor_wacc .< wacc_upper)
+            lcoe_in_bin = reactor_lcoe[in_bin]
 
-            # Group by scale
-            if pj.scale == "Micro"
-                append!(micro_lcoe_all, lcoe_values)
-            elseif pj.scale == "SMR"
-                append!(smr_lcoe_all, lcoe_values)
-            elseif pj.scale == "Large"
-                append!(large_lcoe_all, lcoe_values)
+            # Append to appropriate scale bin
+            if scale == "Micro"
+                append!(micro_lcoe_bin, lcoe_in_bin)
+            elseif scale == "SMR"
+                append!(smr_lcoe_bin, lcoe_in_bin)
+            elseif scale == "Large"
+                append!(large_lcoe_bin, lcoe_in_bin)
             end
         end
 
-        # Calculate median LCOE for each scale at this WACC
-        push!(wacc_percentages, wacc_val * 100)  # Convert to percentage
-        push!(micro_median_lcoe, isempty(micro_lcoe_all) ? NaN : median(micro_lcoe_all))
-        push!(smr_median_lcoe, isempty(smr_lcoe_all) ? NaN : median(smr_lcoe_all))
-        push!(large_median_lcoe, isempty(large_lcoe_all) ? NaN : median(large_lcoe_all))
+        # Calculate median LCOE for each scale in this bin
+        push!(wacc_percentages, wacc_pct)
+        push!(micro_median_lcoe, isempty(micro_lcoe_bin) ? NaN : median(micro_lcoe_bin))
+        push!(smr_median_lcoe, isempty(smr_lcoe_bin) ? NaN : median(smr_lcoe_bin))
+        push!(large_median_lcoe, isempty(large_lcoe_bin) ? NaN : median(large_lcoe_bin))
+
+        @info("    Bin counts: Micro=$(length(micro_lcoe_bin)), SMR=$(length(smr_lcoe_bin)), Large=$(length(large_lcoe_bin))")
     end
 
     # Create plot
@@ -1225,7 +1233,7 @@ function wacc_sensitivity_plot(pjs, opt_scaling, wacc_range, electricity_price_m
     ax.xgridvisible = true
     ax.ygridvisible = true
 
-    @info("WACC sensitivity plot complete")
+    @info("WACC sensitivity plot complete (used existing data, 0 new simulations)")
 
     return fig
 end
