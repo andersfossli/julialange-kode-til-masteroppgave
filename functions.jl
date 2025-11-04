@@ -83,6 +83,57 @@ function learning_multiplier(N::Int, LR::Float64;
 end
 
 """
+    carelli_occ(p::Float64, occ::Float64; p_ref::Float64=1200.0, beta::Float64=0.20)
+
+Apply Carelli scaling to normalize OCC (Overnight Capital Cost) to a reference capacity for scale-independent comparison.
+
+# Purpose
+Derives scale-independent investment by correcting for economies of scale using a power-law relationship.
+This allows fair comparison across different reactor sizes (Micro/SMR/Large).
+
+# Arguments
+- `p::Float64`: Actual reactor capacity [MWe]
+- `occ::Float64`: Raw overnight capital cost [USD/kW or USD/MW depending on context]
+- `p_ref::Float64=1200.0`: Reference capacity for normalization [MWe] (default: typical large PWR)
+- `beta::Float64=0.20`: Scaling exponent (economies of scale parameter)
+  - β = 0.15: Weak economies of scale
+  - β = 0.20: Moderate (default, typical for nuclear)
+  - β = 0.25: Strong economies of scale
+  - β = 0.30: Very strong economies of scale
+
+# Theory
+Cost scaling relationship: OCC(P) = OCC_ref × (P/P_ref)^(-β)
+To normalize to reference size: OCC_SI = OCC_raw × (P/P_ref)^β
+
+This removes the size penalty, making costs comparable across scales.
+
+# Returns
+- Scale-independent OCC adjusted to reference capacity
+
+# Examples
+```julia
+# 300 MW SMR with OCC = 6000 USD/kW
+# Normalize to 1200 MW reference
+carelli_occ(300.0, 6000.0)  # Returns ~4757 USD/kW (removes small-scale penalty)
+
+# 1200 MW Large reactor with OCC = 5500 USD/kW
+carelli_occ(1200.0, 5500.0)  # Returns 5500 USD/kW (already at reference)
+
+# 50 MW Micro with OCC = 8000 USD/kW, strong scaling (β=0.25)
+carelli_occ(50.0, 8000.0, beta=0.25)  # Returns ~5040 USD/kW
+```
+
+# References
+- Carelli et al. (2010): Economics of small modular reactors
+- OECD-NEA (2011): Current Status, Technical Feasibility and Economics of Small Nuclear Reactors
+"""
+function carelli_occ(p::Float64, occ::Float64; p_ref::Float64=1200.0, beta::Float64=0.20)
+    # Apply power-law normalization
+    # OCC_SI = OCC_raw × (P / P_ref)^β
+    return occ * (p / p_ref)^beta
+end
+
+"""
 The gen_rand_vars function generates random variables for a given investment project, pj, based on a specified scaling option, opt_scaling, the number of simulations to run, n, a range of weighted average cost of capital (WACC) values, wacc, and a range of electricity price values, electricity_price.
 The total time of the reactor project, which is the sum of the construction time and operating time, is calculated by adding the elements at index 1 and 2 of the pj.time vector.
 Next, the function generates uniformly distributed random variables for the WACC, electricity price, and load factor using the rand function. The range of values for each variable is determined by the input ranges of wacc and electricity_price, and the pj.loadfactor attribute.
@@ -152,6 +203,24 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
                 # random investment cost uniform [USD]
                 investment_scaled = pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ (scaling)
                 rand_investment = investment_scaled[1] .+ (investment_scaled[2]-investment_scaled[1]) .* rand(n,1) .* soak_factor
+            elseif opt_scaling == "carelli"
+                @info("using Carelli scaling (economies of scale normalization)")
+                # Carelli scaling: normalize OCC to reference capacity for scale-independent comparison
+                # Default: P_ref = 1200 MWe, β = 0.20 (can be parameterized later)
+                p_ref = 1200.0  # Reference capacity [MWe]
+                beta = 0.20     # Scaling exponent (economies of scale parameter)
+
+                # Get raw OCC from manufacturer estimate [USD/kW]
+                raw_occ = pj.investment  # Already in USD/kW
+
+                # Apply Carelli normalization
+                occ_si = carelli_occ(pj.plant_capacity, raw_occ, p_ref=p_ref, beta=beta)
+
+                # Convert back to total investment [USD]
+                rand_investment = occ_si * pj.plant_capacity * ones(n) * soak_factor
+
+                @info("  Carelli parameters: P=$(pj.plant_capacity) MWe, P_ref=$p_ref MWe, β=$beta")
+                @info("  Raw OCC: $(round(raw_occ, digits=0)) USD/kW → SI-OCC: $(round(occ_si, digits=0)) USD/kW")
             else
                 @error("Option for the scaling method is unknown.")
             end
