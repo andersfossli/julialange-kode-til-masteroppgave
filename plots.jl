@@ -444,9 +444,7 @@ println("="^80)
 if PRETTYTABLES_AVAILABLE
     pretty_table(scale_data,
          backend=:text,
-         header=["Category", "Range", "Count", "Share", "Description"],
-         alignment=[:l, :l, :r, :r, :l],
-         crop=:none)
+         alignment=[:l, :l, :r, :r, :l])
 else
     println(scale_data)
 end
@@ -492,9 +490,7 @@ println("="^80)
 if PRETTYTABLES_AVAILABLE
     pretty_table(type_data,
          backend=:text,
-         header=["Type", "Full Name", "Count", "Share", "Description"],
-         alignment=[:l, :l, :r, :r, :l],
-         crop=:none)
+         alignment=[:l, :l, :r, :r, :l])
 else
     println(type_data)
 end
@@ -540,9 +536,7 @@ println("="^80)
 if PRETTYTABLES_AVAILABLE
    pretty_table(region_data,
          backend=:text,
-         header=["Region", "Count", "Share", "Countries", "Description"],
-         alignment=[:l, :r, :r, :l, :l],
-         crop=:none)
+         alignment=[:l, :r, :r, :l, :l])
 else
     println(region_data)
 end
