@@ -207,7 +207,8 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         "Scale" => :scale,  # New column name (capital S)
         "scale" => :scale,  # New column name (lowercase s)
         "Large medium micro" => :scale,  # Old column name (backwards compatibility)
-        "FOAK/NOAK*" => :foak_noak
+        "FOAK/NOAK*" => :foak_noak,
+        "Year" => :year  # Year reactor connected to grid
     )
 
     # Check which columns exist
@@ -254,7 +255,8 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     # Clean numeric columns
     numeric_cols = [:capacity_mwe, :occ_usd_per_kw, :construction_time_planned,
                     :construction_time_actual, :lifetime_years, :capacity_factor_pct,
-                    :opex_fixed_usd_per_mw_yr, :opex_variable_usd_per_mwh, :fuel_usd_per_mwh]
+                    :opex_fixed_usd_per_mw_yr, :opex_variable_usd_per_mwh, :fuel_usd_per_mwh,
+                    :year]
 
     println("\n--- Cleaning numeric columns ---")
     for col in numeric_cols
@@ -425,6 +427,13 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :reference_pj_investment] = reference_investment
     df_output[!, :reference_pj_capacity] = reference_capacity
 
+    # Column 18: year (year reactor was connected to grid)
+    if :year in propertynames(df_work)
+        df_output[!, :year] = coalesce.(df_work[!, :year], 2020)
+    else
+        df_output[!, :year] = fill(2020, nrow(df_work))
+    end
+
     # Convert appropriate columns to integers (to match project_data.csv format)
     # These columns should be whole numbers without decimals
     df_output[!, :investment] = round.(Int, df_output[!, :investment])
@@ -434,6 +443,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :operating_cost_fix] = round.(Int, df_output[!, :operating_cost_fix])
     df_output[!, :reference_pj_investment] = round.(Int, df_output[!, :reference_pj_investment])
     df_output[!, :reference_pj_capacity] = round.(Int, df_output[!, :reference_pj_capacity])
+    df_output[!, :year] = round.(Int, df_output[!, :year])
 
     # Save as semicolon-delimited CSV
     CSV.write(output_csv, df_output; delim=';')
