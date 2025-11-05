@@ -2,6 +2,7 @@ using XLSX
 using DataFrames
 using CSV
 using Statistics
+using PrettyTables
 
 """
     country_to_region(country)
@@ -471,122 +472,149 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println("Total reactors in dataset: $total_reactors")
     println()
 
-    # 1. Summary by Scale
-    println("="^80)
-    println("1. BY SCALE")
-    println("="^80)
+    # Create summary tables as DataFrames for pretty printing and export
 
-    scale_descriptions = Dict(
-        "Large" => "Conventional Generation III/III+ units (EPR, APR, AP1000, etc.)",
-        "SMR" => "Modular LWR, SFR, MSR, and HTR designs under development or deployment",
-        "Micro" => "Experimental or conceptual small-scale designs for remote/off-grid use"
+    # 1. Summary by Scale
+    scale_data = DataFrame(
+        Category = String[],
+        Range = String[],
+        Count = Int[],
+        Share = String[],
+        Description = String[]
     )
 
+    scale_order = ["Large", "SMR", "Micro"]
     scale_ranges = Dict(
         "Large" => ">300 MWe",
         "SMR" => "50-300 MWe",
         "Micro" => "<50 MWe"
     )
+    scale_descriptions = Dict(
+        "Large" => "Conventional Gen III/III+ units",
+        "SMR" => "Modular designs under development",
+        "Micro" => "Small-scale/off-grid designs"
+    )
 
     scale_counts = combine(groupby(df_output, :scale), nrow => :count)
-    sort!(scale_counts, :scale, rev=true)  # Large, SMR, Micro order
-
-    for row in eachrow(scale_counts)
-        scale = row.scale
-        count = row.count
-        share = round(count / total_reactors * 100, digits=1)
-        range_str = get(scale_ranges, scale, "")
-        desc = get(scale_descriptions, scale, "")
-
-        println("\n$scale reactors ($range_str)")
-        println("  Count: $count units ($(share)% of total)")
-        println("  Description: $desc")
+    for scale in scale_order
+        row = filter(r -> r.scale == scale, scale_counts)
+        if nrow(row) > 0
+            count = row[1, :count]
+            share = "$(round(count / total_reactors * 100, digits=1))%"
+            push!(scale_data, (scale, scale_ranges[scale], count, share, scale_descriptions[scale]))
+        end
     end
 
-    # 2. Summary by Reactor Type
-    println("\n" * "="^80)
-    println("2. BY REACTOR TYPE")
     println("="^80)
+    println("TABLE 1: REACTORS BY SCALE")
+    println("="^80)
+    pretty_table(scale_data,
+                 backend=Val(:text),
+                 header=["Category", "Range", "Count", "Share", "Description"],
+                 alignment=[:l, :l, :r, :r, :l],
+                 crop=:none)
 
-    type_descriptions = Dict(
-        "PWR" => "Dominant reactor type in both SMR and large categories",
-        "BWR" => "Boiling water reactor designs (GE, Hitachi)",
-        "SFR" => "Includes BN, CEFR, and ARC designs",
-        "HTR" => "Includes Fort St. Vrain, HTR-PM, and EM2",
-        "MSR" => "Molten salt reactor concepts (excluded from analysis)",
-        "LFR" => "Lead-cooled fast reactor (excluded from analysis)",
-        "MR" => "Microreactor concepts (excluded from analysis)"
+    # 2. Summary by Reactor Type
+    type_data = DataFrame(
+        Type = String[],
+        Full_Name = String[],
+        Count = Int[],
+        Share = String[],
+        Description = String[]
     )
 
     type_full_names = Dict(
-        "PWR" => "Pressurized Water Reactor (PWR)",
-        "BWR" => "Boiling Water Reactor (BWR)",
-        "SFR" => "Sodium-cooled Fast Reactor (SFR)",
-        "HTR" => "High-Temperature Gas-cooled Reactor (HTR)",
-        "MSR" => "Molten Salt Reactor (MSR)",
-        "LFR" => "Lead-cooled Fast Reactor (LFR)",
-        "MR" => "Microreactor (MR)"
+        "PWR" => "Pressurized Water Reactor",
+        "BWR" => "Boiling Water Reactor",
+        "SFR" => "Sodium-cooled Fast Reactor",
+        "HTR" => "High-Temperature Gas-cooled Reactor"
+    )
+
+    type_descriptions = Dict(
+        "PWR" => "Dominant type in SMR and Large",
+        "BWR" => "GE, Hitachi designs",
+        "SFR" => "BN, CEFR, ARC designs",
+        "HTR" => "Fort St. Vrain, HTR-PM, EM2"
     )
 
     type_counts = combine(groupby(df_output, :type), nrow => :count)
-    sort!(type_counts, :count, rev=true)  # Sort by count descending
+    sort!(type_counts, :count, rev=true)
 
     for row in eachrow(type_counts)
         rtype = row.type
         count = row.count
-        share = round(count / total_reactors * 100, digits=1)
+        share = "$(round(count / total_reactors * 100, digits=1))%"
         full_name = get(type_full_names, rtype, rtype)
         desc = get(type_descriptions, rtype, "")
-
-        println("\n$full_name")
-        println("  Count: $count units ($(share)% of total)")
-        println("  Description: $desc")
+        push!(type_data, (rtype, full_name, count, share, desc))
     end
 
-    # 3. Summary by Geographic Region
     println("\n" * "="^80)
-    println("3. BY GEOGRAPHIC REGION")
+    println("TABLE 2: REACTORS BY TYPE")
     println("="^80)
+    pretty_table(type_data,
+                 backend=Val(:text),
+                 header=["Type", "Full Name", "Count", "Share", "Description"],
+                 alignment=[:l, :l, :r, :r, :l],
+                 crop=:none)
 
-    region_descriptions = Dict(
-        "Western / Developed" => "OECD-based projects emphasizing vendor-led modularization",
-        "Emerging Asia" => "State-driven programs focusing on standardized reactor fleets",
-        "Eastern Europe" => "Former Soviet bloc nations",
-        "South America" => "Regional nuclear development programs",
-        "Middle East / Africa" => "Emerging nuclear energy markets",
-        "Other" => "Other regions"
+    # 3. Summary by Geographic Region
+    region_data = DataFrame(
+        Region = String[],
+        Count = Int[],
+        Share = String[],
+        Countries = String[],
+        Description = String[]
     )
 
     region_countries = Dict(
-        "Western / Developed" => "USA, UK, France, Finland, Canada, Japan, South Korea",
+        "Western / Developed" => "USA, UK, France, Canada, Japan, S. Korea",
         "Emerging Asia" => "China, Russia, India, Pakistan",
-        "Eastern Europe" => "Ukraine, Czech Republic, Slovakia",
         "South America" => "Argentina, Brazil",
-        "Middle East / Africa" => "UAE, Saudi Arabia, Egypt, South Africa",
-        "Other" => "Various"
+        "Middle East / Africa" => "UAE, Saudi Arabia, Egypt, S. Africa"
+    )
+
+    region_descriptions = Dict(
+        "Western / Developed" => "OECD vendor-led projects",
+        "Emerging Asia" => "State-driven programs",
+        "South America" => "Regional development",
+        "Middle East / Africa" => "Emerging markets"
     )
 
     region_counts = combine(groupby(df_output, :region), nrow => :count)
-    sort!(region_counts, :count, rev=true)  # Sort by count descending
+    sort!(region_counts, :count, rev=true)
 
     for row in eachrow(region_counts)
         region = row.region
         count = row.count
-        share = round(count / total_reactors * 100, digits=1)
+        share = "$(round(count / total_reactors * 100, digits=1))%"
+        countries = get(region_countries, region, "Various")
         desc = get(region_descriptions, region, "")
-        countries = get(region_countries, region, "")
-
-        println("\n$region")
-        println("  Count: $count units ($(share)% of total)")
-        println("  Countries: $countries")
-        println("  Description: $desc")
+        push!(region_data, (region, count, share, countries, desc))
     end
 
     println("\n" * "="^80)
-    println()
+    println("TABLE 3: REACTORS BY GEOGRAPHIC REGION")
+    println("="^80)
+    pretty_table(region_data,
+                 backend=Val(:text),
+                 header=["Region", "Count", "Share", "Countries", "Description"],
+                 alignment=[:l, :r, :r, :l, :l],
+                 crop=:none)
+
+    println("\n" * "="^80)
+
+    # Save tables to CSV files for LaTeX/thesis use
+    CSV.write("_output/summary_by_scale.csv", scale_data)
+    CSV.write("_output/summary_by_type.csv", type_data)
+    CSV.write("_output/summary_by_region.csv", region_data)
+    println("\n✓ Summary tables saved to _output/ directory")
+    println("  - summary_by_scale.csv")
+    println("  - summary_by_type.csv")
+    println("  - summary_by_region.csv")
 
     # Show first few reactors as example
-    println("--- Sample Reactors (First 5) ---")
+    println("\n--- Sample Reactors (First 5) ---")
     display_df = df_output[1:min(5, nrow(df_output)), [:name, :type, :scale, :region, :plant_capacity]]
     println(display_df)
 
