@@ -443,7 +443,7 @@ println("TABLE 1: REACTORS BY SCALE")
 println("="^80)
 if PRETTYTABLES_AVAILABLE
     pretty_table(scale_data,
-         backend=Val(:text),
+         backend=:text,
          header=["Category", "Range", "Count", "Share", "Description"],
          alignment=[:l, :l, :r, :r, :l],
          crop=:none)
@@ -491,7 +491,7 @@ println("TABLE 2: REACTORS BY TYPE")
 println("="^80)
 if PRETTYTABLES_AVAILABLE
     pretty_table(type_data,
-         backend=Val(:text),
+         backend=:text,
          header=["Type", "Full Name", "Count", "Share", "Description"],
          alignment=[:l, :l, :r, :r, :l],
          crop=:none)
@@ -539,7 +539,7 @@ println("TABLE 3: REACTORS BY GEOGRAPHIC REGION")
 println("="^80)
 if PRETTYTABLES_AVAILABLE
    pretty_table(region_data,
-         backend=Val(:text),
+         backend=:text,
          header=["Region", "Count", "Share", "Countries", "Description"],
          alignment=[:l, :r, :r, :l, :l],
          crop=:none)
