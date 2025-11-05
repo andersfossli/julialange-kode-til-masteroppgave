@@ -70,10 +70,10 @@ function generate_summary_tables(csv_file::String="_input/reactor_data.csv")
     println("="^80)
     if PRETTYTABLES_AVAILABLE
         pretty_table(scale_data,
-                     backend=Val(:text),
-                     header=["Category", "Range", "Count", "Share", "Description"],
-                     alignment=[:l, :l, :r, :r, :l],
-                     crop=:none)
+             backend=:text,  # ← NEW (just Symbol, not Val)
+             header=["Category", "Range", "Count", "Share", "Description"],
+             alignment=[:l, :l, :r, :r, :l],
+             crop=:none)
     else
         println(scale_data)
     end
@@ -118,10 +118,10 @@ function generate_summary_tables(csv_file::String="_input/reactor_data.csv")
     println("="^80)
     if PRETTYTABLES_AVAILABLE
         pretty_table(type_data,
-                     backend=Val(:text),
-                     header=["Type", "Full Name", "Count", "Share", "Description"],
-                     alignment=[:l, :l, :r, :r, :l],
-                     crop=:none)
+             backend=:text,  # ← NEW (just Symbol, not Val)
+             header=["Category", "Range", "Count", "Share", "Description"],
+             alignment=[:l, :l, :r, :r, :l],
+             crop=:none)
     else
         println(type_data)
     end
@@ -165,11 +165,11 @@ function generate_summary_tables(csv_file::String="_input/reactor_data.csv")
     println("TABLE 3: REACTORS BY GEOGRAPHIC REGION")
     println("="^80)
     if PRETTYTABLES_AVAILABLE
-        pretty_table(region_data,
-                     backend=Val(:text),
-                     header=["Region", "Count", "Share", "Countries", "Description"],
-                     alignment=[:l, :r, :r, :l, :l],
-                     crop=:none)
+       pretty_table(region_data,
+             backend=:text,  # ← NEW (just Symbol, not Val)
+             header=["Category", "Range", "Count", "Share", "Description"],
+             alignment=[:l, :l, :r, :r, :l],
+             crop=:none)
     else
         println(region_data)
     end
