@@ -2,7 +2,15 @@ using XLSX
 using DataFrames
 using CSV
 using Statistics
-using PrettyTables
+
+# Try to load PrettyTables, but don't fail if it's not available
+const PRETTYTABLES_AVAILABLE = try
+    using PrettyTables
+    true
+catch
+    @warn "PrettyTables not installed. Tables will use basic formatting. Install with: import Pkg; Pkg.add(\"PrettyTables\")"
+    false
+end
 
 """
     country_to_region(country)
@@ -508,11 +516,15 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println("="^80)
     println("TABLE 1: REACTORS BY SCALE")
     println("="^80)
-    pretty_table(scale_data,
-                 backend=Val(:text),
-                 header=["Category", "Range", "Count", "Share", "Description"],
-                 alignment=[:l, :l, :r, :r, :l],
-                 crop=:none)
+    if PRETTYTABLES_AVAILABLE
+        pretty_table(scale_data,
+                     backend=Val(:text),
+                     header=["Category", "Range", "Count", "Share", "Description"],
+                     alignment=[:l, :l, :r, :r, :l],
+                     crop=:none)
+    else
+        println(scale_data)
+    end
 
     # 2. Summary by Reactor Type
     type_data = DataFrame(
@@ -552,11 +564,15 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println("\n" * "="^80)
     println("TABLE 2: REACTORS BY TYPE")
     println("="^80)
-    pretty_table(type_data,
-                 backend=Val(:text),
-                 header=["Type", "Full Name", "Count", "Share", "Description"],
-                 alignment=[:l, :l, :r, :r, :l],
-                 crop=:none)
+    if PRETTYTABLES_AVAILABLE
+        pretty_table(type_data,
+                     backend=Val(:text),
+                     header=["Type", "Full Name", "Count", "Share", "Description"],
+                     alignment=[:l, :l, :r, :r, :l],
+                     crop=:none)
+    else
+        println(type_data)
+    end
 
     # 3. Summary by Geographic Region
     region_data = DataFrame(
@@ -596,11 +612,15 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println("\n" * "="^80)
     println("TABLE 3: REACTORS BY GEOGRAPHIC REGION")
     println("="^80)
-    pretty_table(region_data,
-                 backend=Val(:text),
-                 header=["Region", "Count", "Share", "Countries", "Description"],
-                 alignment=[:l, :r, :r, :l, :l],
-                 crop=:none)
+    if PRETTYTABLES_AVAILABLE
+        pretty_table(region_data,
+                     backend=Val(:text),
+                     header=["Region", "Count", "Share", "Countries", "Description"],
+                     alignment=[:l, :r, :r, :l, :l],
+                     crop=:none)
+    else
+        println(region_data)
+    end
 
     println("\n" * "="^80)
 
