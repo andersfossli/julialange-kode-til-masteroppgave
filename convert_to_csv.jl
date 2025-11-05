@@ -1,22 +1,11 @@
 using XLSX
 using DataFrames
 using CSV
-using Statistics
-
-# Try to load PrettyTables, but don't fail if it's not available
-const PRETTYTABLES_AVAILABLE = try
-    using PrettyTables
-    true
-catch
-    @warn "PrettyTables not installed. Tables will use basic formatting. Install with: import Pkg; Pkg.add(\"PrettyTables\")"
-    false
-end
 
 """
     country_to_region(country)
 
 Map country names to regional categories following Weibezahn et al. (2023)
-and OECD-NEA regional groupings for nuclear energy analysis.
 """
 function country_to_region(country)
     if ismissing(country)
@@ -25,8 +14,7 @@ function country_to_region(country)
 
     country_str = uppercase(strip(string(country)))
 
-    # Emerging Asia: China, India, Pakistan, Russia
-    # Note: Russia checked FIRST to ensure it goes to Emerging Asia, not Eastern Europe
+    # Emerging Asia: China, India, Pakistan, Russia (checked FIRST)
     emerging_asia = ["CHINA", "RUSSIA", "RUSSIAN FEDERATION", "INDIA", "PAKISTAN"]
 
     # Western / Developed: USA, Canada, Western Europe, Japan, South Korea
@@ -47,7 +35,6 @@ function country_to_region(country)
                          "EGYPT", "SOUTH AFRICA"]
 
     # Check regions in priority order
-    # IMPORTANT: Check Emerging Asia BEFORE Eastern Europe to correctly classify Russia
     if any(occursin(c, country_str) for c in emerging_asia)
         return "Emerging Asia"
     elseif any(occursin(c, country_str) for c in western_developed)
@@ -71,29 +58,14 @@ Standardize reactor type names to basic technology categories
 function standardize_reactor_type(reactor_type)
     rtype = uppercase(strip(string(reactor_type)))
 
-    # PWR variants
-    pwr_types = ["PWR", "EPR", "EPR (PWR)", "EPR-1750", "AP1000", "APR1400",
-                 "VVER1200 (PWR)", "VVER", "VVER1200", "IPWR"]
-
-    # BWR variants
+    pwr_types = ["PWR", "EPR", "AP1000", "APR1400", "VVER1200", "VVER", "IPWR"]
     bwr_types = ["BWR"]
-
-    # HTR variants
     htr_types = ["HTR", "HTR/GFR", "HTGR"]
-
-    # SFR variants
-    sfr_types = ["SFR", "BN-800 (SFR)", "BN-800", "BN800"]
-
-    # MSR variants
+    sfr_types = ["SFR", "BN-800", "BN800"]
     msr_types = ["MSR", "MSFR"]
-
-    # LFR variants
     lfr_types = ["LFR"]
-
-    # MR variants
     mr_types = ["MR"]
 
-    # Check which category it belongs to
     if any(occursin(pwr, rtype) for pwr in pwr_types)
         return "PWR"
     elseif any(occursin(bwr, rtype) for bwr in bwr_types)
@@ -109,16 +81,14 @@ function standardize_reactor_type(reactor_type)
     elseif any(occursin(mr, rtype) for mr in mr_types)
         return "MR"
     else
-        println("⚠ Warning: Unknown reactor type '$reactor_type', keeping as-is")
         return string(reactor_type)
     end
 end
 
-
 """
     get_reference_values(reactor_type)
 
-Get reference project values based on reactor type (from existing data)
+Get reference project values based on reactor type
 """
 function get_reference_values(reactor_type)
     if reactor_type == "PWR"
@@ -130,19 +100,19 @@ function get_reference_values(reactor_type)
     elseif reactor_type == "SFR"
         return (investment=5200000, capacity=1250)
     elseif reactor_type == "MSR"
-        return (investment=8600000, capacity=1000)  # Default, adjust as needed
+        return (investment=8600000, capacity=1000)
     elseif reactor_type == "LFR"
-        return (investment=5200000, capacity=1250)  # Similar to SFR
+        return (investment=5200000, capacity=1250)
     else
-        return (investment=8600000, capacity=1000)  # Default fallback
+        return (investment=8600000, capacity=1000)
     end
 end
-
 
 """
     clean_numeric_string(s)
 
 Clean numeric strings by removing spaces, dashes, and 'x' markers
+Handle ranges like "85-90" by taking midpoint
 """
 function clean_numeric_string(s)
     if ismissing(s)
@@ -181,29 +151,24 @@ function clean_numeric_string(s)
     end
 end
 
-
 """
     extract_reactor_data(excel_file::String; output_csv::String="_input/reactor_data.csv")
 
-Extract reactor data from Excel and format to match existing project_data.csv structure
+Extract reactor data from Excel and convert to CSV format
 """
 function extract_reactor_data(excel_file::String; output_csv::String="_input/reactor_data.csv")
-    # Read the Excel file
+    println("Reading Excel file: $excel_file")
+    
+    # Read Excel
     xf = XLSX.readxlsx(excel_file)
     sheet = xf["Datasheet"]
     df = DataFrame(XLSX.gettable(sheet; first_row=3))
 
-    println("Available columns in Excel:")
-    for (i, col) in enumerate(names(df))
-        println("$i. '$col'")
-    end
-    println()
-
-    # Define column mapping
+    # Column mapping
     column_mapping = Dict(
         "Project" => :name,
         "Type" => :reactor_type_raw,
-        "Country" => :country,  # New: for regional analysis
+        "Country" => :country,
         "Capacity (net MWe)" => :capacity_mwe,
         "OCC (USD2020/kW)" => :occ_usd_per_kw,
         "planned Construction time (y)" => :construction_time_planned,
@@ -213,14 +178,14 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         "OPEX fixed (USD2020/MW-yr)" => :opex_fixed_usd_per_mw_yr,
         "OPEX variable (USD2020/MWh)" => :opex_variable_usd_per_mwh,
         "Fuel (USD2020/MWh)" => :fuel_usd_per_mwh,
-        "Scale" => :scale,  # New column name (capital S)
-        "scale" => :scale,  # New column name (lowercase s)
-        "Large medium micro" => :scale,  # Old column name (backwards compatibility)
+        "Scale" => :scale,
+        "scale" => :scale,
+        "Large medium micro" => :scale,
         "FOAK/NOAK*" => :foak_noak,
-        "Year" => :year  # Year reactor connected to grid
+        "Year" => :year
     )
 
-    # Check which columns exist
+    # Select and rename available columns
     available_cols = Dict{String, Symbol}()
     for (old_name, new_name) in column_mapping
         if old_name in names(df)
@@ -228,15 +193,11 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         end
     end
 
-    # Select and rename columns
     df_work = select(df, keys(available_cols)...)
     rename!(df_work, available_cols)
-
-    # Convert all column names to symbols for consistency
     rename!(df_work, Symbol.(names(df_work)))
 
-    # Filter out header rows that might have been included
-    # Remove any row where the name or reactor_type_raw contains "Project" or "Type" (headers)
+    # Filter out header rows
     if :name in propertynames(df_work)
         df_work = filter(row -> !ismissing(row.name) &&
                                 !occursin(r"^Project$"i, string(row.name)), df_work)
@@ -246,75 +207,37 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
                                 !occursin(r"^Type$"i, string(row.reactor_type_raw)), df_work)
     end
 
-    # Debug: Check which columns exist before cleaning
-    println("\n--- Columns in df_work BEFORE cleaning ---")
-    println("Column names: ", names(df_work))
-    println("Property names (symbols): ", propertynames(df_work))
-    if :construction_time_planned in propertynames(df_work)
-        println("✓ construction_time_planned exists, sample: ", df_work[1:min(3, nrow(df_work)), :construction_time_planned])
-    else
-        println("✗ construction_time_planned NOT FOUND")
-    end
-    if :lifetime_years in propertynames(df_work)
-        println("✓ lifetime_years exists, sample: ", df_work[1:min(3, nrow(df_work)), :lifetime_years])
-    else
-        println("✗ lifetime_years NOT FOUND")
-    end
-
     # Clean numeric columns
     numeric_cols = [:capacity_mwe, :occ_usd_per_kw, :construction_time_planned,
                     :construction_time_actual, :lifetime_years, :capacity_factor_pct,
                     :opex_fixed_usd_per_mw_yr, :opex_variable_usd_per_mwh, :fuel_usd_per_mwh,
                     :year]
 
-    println("\n--- Cleaning numeric columns ---")
     for col in numeric_cols
         if col in propertynames(df_work)
-            println("Cleaning column: $col")
-            before_sample = df_work[1:min(3, nrow(df_work)), col]
-            println("  Before: $before_sample (types: $(typeof.(before_sample)))")
             df_work[!, col] = clean_numeric_string.(df_work[!, col])
-            after_sample = df_work[1:min(3, nrow(df_work)), col]
-            println("  After: $after_sample (types: $(typeof.(after_sample)))")
         end
     end
 
     # Remove rows with missing critical data
-    initial_rows = nrow(df_work)
     df_work = dropmissing(df_work, [:name, :capacity_mwe, :occ_usd_per_kw])
-    println("Rows after removing missing critical data: $(nrow(df_work)) (removed $(initial_rows - nrow(df_work)))")
 
-    # Ensure numeric columns are actually numeric (filter out any that failed conversion)
-    initial_rows = nrow(df_work)
+    # Ensure numeric columns are numeric
     df_work = filter(row -> typeof(row.capacity_mwe) <: Number &&
                            typeof(row.occ_usd_per_kw) <: Number, df_work)
-    println("Rows after ensuring numeric types: $(nrow(df_work)) (removed $(initial_rows - nrow(df_work)))")
 
     if nrow(df_work) == 0
-        println("\n❌ ERROR: No valid data rows found after cleaning!")
-        println("Check that the Excel file has data starting from row 3")
-        return nothing
+        error("No valid data rows found after cleaning!")
     end
 
     # Standardize reactor types
-    println("\n--- Reactor Type Standardization ---")
     df_work[!, :type] = standardize_reactor_type.(df_work[!, :reactor_type_raw])
-    println("Standardized types:")
-    println(combine(groupby(df_work, :type), nrow => :count))
-    println()
 
-    # Remove reactors without operational reference units
-    println("\n--- Removing Reactors Without Operational Reference ---")
+    # Remove reactors without operational reference
     reactors_to_exclude = ["IMSR (300)", "SSR-W", "e-Vinci", "BREST-OD-300", "Brest-OD-300"]
-    initial_count = nrow(df_work)
     df_work = filter(row -> !(row.name in reactors_to_exclude), df_work)
-    removed_count = initial_count - nrow(df_work)
-    println("Removed $removed_count reactors lacking operational reference units:")
-    println("  - IMSR (300), SSR-W, e-Vinci, BREST-OD-300")
-    println("Remaining reactors: $(nrow(df_work))")
-    println()
 
-    # Create output dataframe with exact column structure from project_data.csv
+    # Create output dataframe
     df_output = DataFrame()
 
     # Column 1: name
@@ -323,12 +246,10 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     # Column 2: type
     df_output[!, :type] = df_work[!, :type]
 
-    # Column 3: scale (micro/SMR/large)
+    # Column 3: scale
     if :scale in propertynames(df_work)
         df_output[!, :scale] = df_work[!, :scale]
     else
-        # If scale column not found, try to infer from capacity
-        println("Warning: scale column not found, inferring from capacity")
         df_output[!, :scale] = map(df_work[!, :capacity_mwe]) do cap
             if ismissing(cap)
                 return "Unknown"
@@ -346,64 +267,40 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     if :country in propertynames(df_work)
         df_output[!, :country] = df_work[!, :country]
     else
-        println("Warning: country column not found, using 'Unknown'")
         df_output[!, :country] = fill("Unknown", nrow(df_work))
     end
 
-    # Column 5: region (derived from country)
-    println("\n--- Regional Categorization ---")
+    # Column 5: region
     df_output[!, :region] = country_to_region.(df_output[!, :country])
-    println("Regions identified:")
-    println(combine(groupby(df_output, :region), nrow => :count))
-    println()
 
-    # Column 6: investment (investment cost in USD/MW)
-    # Convert OCC from USD/kW to USD/MW (multiply by 1000)
-    # Note: Simulation code multiplies this by plant_capacity to get total investment
+    # Column 6: investment (USD/MW)
     df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* 1000
 
-    # Column 7: plant_capacity (in MWe)
+    # Column 7: plant_capacity (MWe)
     df_output[!, :plant_capacity] = df_work[!, :capacity_mwe]
 
-    # Column 8: learning_factor (default 0.1 for all)
+    # Column 8: learning_factor
     df_output[!, :learning_factor] = fill(0.1, nrow(df_work))
 
     # Column 9: construction_time
-    # Use ONLY planned construction time (ignore actual build time)
-    println("\n--- Construction Time Debug ---")
     if :construction_time_planned in propertynames(df_work)
-        println("construction_time_planned column exists")
-        println("Sample values: ", df_work[1:min(5, nrow(df_work)), :construction_time_planned])
-        println("Types: ", typeof.(df_work[1:min(5, nrow(df_work)), :construction_time_planned]))
         df_output[!, :construction_time] = coalesce.(df_work[!, :construction_time_planned], 3.0)
     else
-        println("construction_time_planned NOT found, using default 3.0")
         df_output[!, :construction_time] = fill(3.0, nrow(df_work))
     end
-    println("Final construction_time values: ", df_output[1:min(5, nrow(df_output)), :construction_time])
 
-    # Column 10: operating_time (lifetime in years)
-    println("\n--- Operating Time Debug ---")
+    # Column 10: operating_time
     if :lifetime_years in propertynames(df_work)
-        println("lifetime_years column exists")
-        println("Sample values: ", df_work[1:min(5, nrow(df_work)), :lifetime_years])
-        println("Types: ", typeof.(df_work[1:min(5, nrow(df_work)), :lifetime_years]))
         df_output[!, :operating_time] = coalesce.(df_work[!, :lifetime_years], 60.0)
     else
-        println("lifetime_years column NOT found")
         df_output[!, :operating_time] = fill(60.0, nrow(df_work))
     end
-    println("Final operating_time values: ", df_output[1:min(5, nrow(df_output)), :operating_time])
 
-    # Columns 11-12: loadfactor_lower and loadfactor_upper
-    # Convert capacity factor from percentage to decimal
-    # If capacity factor is provided, use it; otherwise default to 90-95% range
+    # Columns 11-12: loadfactor range
     if :capacity_factor_pct in propertynames(df_work)
         cf_decimal = df_work[!, :capacity_factor_pct] ./ 100.0
-        # Use ±2.5% range around the given value, or default to 90-95%
         df_output[!, :loadfactor_lower] = coalesce.(cf_decimal .- 0.025, 0.90)
         df_output[!, :loadfactor_upper] = coalesce.(cf_decimal .+ 0.025, 0.95)
-        # Ensure they're in valid range [0, 1]
         df_output[!, :loadfactor_lower] = max.(df_output[!, :loadfactor_lower], 0.0)
         df_output[!, :loadfactor_upper] = min.(df_output[!, :loadfactor_upper], 1.0)
     else
@@ -411,30 +308,28 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         df_output[!, :loadfactor_upper] = fill(0.95, nrow(df_work))
     end
 
-    # Column 13: operating_cost_fix (fixed OPEX in USD/MW-yr)
-    # Keep as USD/MW-yr - simulation code multiplies by capacity
+    # Column 13: operating_cost_fix
     if :opex_fixed_usd_per_mw_yr in propertynames(df_work)
         df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr], 500.0)
     else
-        df_output[!, :operating_cost_fix] = fill(500.0, nrow(df_work))  # Default: 500 USD/MW-yr
+        df_output[!, :operating_cost_fix] = fill(500.0, nrow(df_work))
     end
 
-    # Column 14: operating_cost_variable (USD/MWh)
+    # Column 14: operating_cost_variable
     if :opex_variable_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_variable] = coalesce.(df_work[!, :opex_variable_usd_per_mwh], 2.3326)
     else
         df_output[!, :operating_cost_variable] = fill(2.3326, nrow(df_work))
     end
 
-    # Column 15: operating_cost_fuel (USD/MWh)
+    # Column 15: operating_cost_fuel
     if :fuel_usd_per_mwh in propertynames(df_work)
         df_output[!, :operating_cost_fuel] = coalesce.(df_work[!, :fuel_usd_per_mwh], 6.0)
     else
         df_output[!, :operating_cost_fuel] = fill(6.0, nrow(df_work))
     end
 
-    # Columns 16-17: reference_pj_investment and reference_pj_capacity
-    # Based on reactor type
+    # Columns 16-17: reference values
     reference_investment = Float64[]
     reference_capacity = Float64[]
 
@@ -447,15 +342,14 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :reference_pj_investment] = reference_investment
     df_output[!, :reference_pj_capacity] = reference_capacity
 
-    # Column 18: year (year reactor was connected to grid)
+    # Column 18: year
     if :year in propertynames(df_work)
         df_output[!, :year] = coalesce.(df_work[!, :year], 2020)
     else
         df_output[!, :year] = fill(2020, nrow(df_work))
     end
 
-    # Convert appropriate columns to integers (to match project_data.csv format)
-    # These columns should be whole numbers without decimals
+    # Convert to integers where appropriate
     df_output[!, :investment] = round.(Int, df_output[!, :investment])
     df_output[!, :plant_capacity] = round.(Int, df_output[!, :plant_capacity])
     df_output[!, :construction_time] = round.(Int, df_output[!, :construction_time])
@@ -465,199 +359,23 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :reference_pj_capacity] = round.(Int, df_output[!, :reference_pj_capacity])
     df_output[!, :year] = round.(Int, df_output[!, :year])
 
-    # Save as semicolon-delimited CSV
+    # Save CSV
     CSV.write(output_csv, df_output; delim=';')
 
-    println("\n✓ Successfully extracted $(nrow(df_output)) reactors")
+    println("\n✓ Successfully converted $(nrow(df_output)) reactors")
     println("✓ Saved to: $output_csv")
-
-    # Generate comprehensive summary statistics table
-    total_reactors = nrow(df_output)
-
-    println("\n" * "="^80)
-    println("REACTOR DATASET SUMMARY STATISTICS")
-    println("="^80)
-    println("Total reactors in dataset: $total_reactors")
-    println()
-
-    # Create summary tables as DataFrames for pretty printing and export
-
-    # 1. Summary by Scale
-    scale_data = DataFrame(
-        Category = String[],
-        Range = String[],
-        Count = Int[],
-        Share = String[],
-        Description = String[]
-    )
-
-    scale_order = ["Large", "SMR", "Micro"]
-    scale_ranges = Dict(
-        "Large" => ">300 MWe",
-        "SMR" => "50-300 MWe",
-        "Micro" => "<50 MWe"
-    )
-    scale_descriptions = Dict(
-        "Large" => "Conventional Gen III/III+ units",
-        "SMR" => "Modular designs under development",
-        "Micro" => "Small-scale/off-grid designs"
-    )
-
-    scale_counts = combine(groupby(df_output, :scale), nrow => :count)
-    for scale in scale_order
-        row = filter(r -> r.scale == scale, scale_counts)
-        if nrow(row) > 0
-            count = row[1, :count]
-            share = "$(round(count / total_reactors * 100, digits=1))%"
-            push!(scale_data, (scale, scale_ranges[scale], count, share, scale_descriptions[scale]))
-        end
-    end
-
-    println("="^80)
-    println("TABLE 1: REACTORS BY SCALE")
-    println("="^80)
-    if PRETTYTABLES_AVAILABLE
-        pretty_table(scale_data,
-                     backend=Val(:text),
-                     header=["Category", "Range", "Count", "Share", "Description"],
-                     alignment=[:l, :l, :r, :r, :l],
-                     crop=:none)
-    else
-        println(scale_data)
-    end
-
-    # 2. Summary by Reactor Type
-    type_data = DataFrame(
-        Type = String[],
-        Full_Name = String[],
-        Count = Int[],
-        Share = String[],
-        Description = String[]
-    )
-
-    type_full_names = Dict(
-        "PWR" => "Pressurized Water Reactor",
-        "BWR" => "Boiling Water Reactor",
-        "SFR" => "Sodium-cooled Fast Reactor",
-        "HTR" => "High-Temperature Gas-cooled Reactor"
-    )
-
-    type_descriptions = Dict(
-        "PWR" => "Dominant type in SMR and Large",
-        "BWR" => "GE, Hitachi designs",
-        "SFR" => "BN, CEFR, ARC designs",
-        "HTR" => "Fort St. Vrain, HTR-PM, EM2"
-    )
-
-    type_counts = combine(groupby(df_output, :type), nrow => :count)
-    sort!(type_counts, :count, rev=true)
-
-    for row in eachrow(type_counts)
-        rtype = row.type
-        count = row.count
-        share = "$(round(count / total_reactors * 100, digits=1))%"
-        full_name = get(type_full_names, rtype, rtype)
-        desc = get(type_descriptions, rtype, "")
-        push!(type_data, (rtype, full_name, count, share, desc))
-    end
-
-    println("\n" * "="^80)
-    println("TABLE 2: REACTORS BY TYPE")
-    println("="^80)
-    if PRETTYTABLES_AVAILABLE
-        pretty_table(type_data,
-                     backend=Val(:text),
-                     header=["Type", "Full Name", "Count", "Share", "Description"],
-                     alignment=[:l, :l, :r, :r, :l],
-                     crop=:none)
-    else
-        println(type_data)
-    end
-
-    # 3. Summary by Geographic Region
-    region_data = DataFrame(
-        Region = String[],
-        Count = Int[],
-        Share = String[],
-        Countries = String[],
-        Description = String[]
-    )
-
-    region_countries = Dict(
-        "Western / Developed" => "USA, UK, France, Canada, Japan, S. Korea",
-        "Emerging Asia" => "China, Russia, India, Pakistan",
-        "South America" => "Argentina, Brazil",
-        "Middle East / Africa" => "UAE, Saudi Arabia, Egypt, S. Africa"
-    )
-
-    region_descriptions = Dict(
-        "Western / Developed" => "OECD vendor-led projects",
-        "Emerging Asia" => "State-driven programs",
-        "South America" => "Regional development",
-        "Middle East / Africa" => "Emerging markets"
-    )
-
-    region_counts = combine(groupby(df_output, :region), nrow => :count)
-    sort!(region_counts, :count, rev=true)
-
-    for row in eachrow(region_counts)
-        region = row.region
-        count = row.count
-        share = "$(round(count / total_reactors * 100, digits=1))%"
-        countries = get(region_countries, region, "Various")
-        desc = get(region_descriptions, region, "")
-        push!(region_data, (region, count, share, countries, desc))
-    end
-
-    println("\n" * "="^80)
-    println("TABLE 3: REACTORS BY GEOGRAPHIC REGION")
-    println("="^80)
-    if PRETTYTABLES_AVAILABLE
-        pretty_table(region_data,
-                     backend=Val(:text),
-                     header=["Region", "Count", "Share", "Countries", "Description"],
-                     alignment=[:l, :r, :r, :l, :l],
-                     crop=:none)
-    else
-        println(region_data)
-    end
-
-    println("\n" * "="^80)
-
-    # Save tables to CSV files for LaTeX/thesis use
-    CSV.write("_output/summary_by_scale.csv", scale_data)
-    CSV.write("_output/summary_by_type.csv", type_data)
-    CSV.write("_output/summary_by_region.csv", region_data)
-    println("\n✓ Summary tables saved to _output/ directory")
-    println("  - summary_by_scale.csv")
-    println("  - summary_by_type.csv")
-    println("  - summary_by_region.csv")
-
-    # Show first few reactors as example
-    println("\n--- Sample Reactors (First 5) ---")
-    display_df = df_output[1:min(5, nrow(df_output)), [:name, :type, :scale, :region, :plant_capacity]]
-    println(display_df)
 
     return df_output
 end
 
-
-# Main execution - runs when script is executed directly from command line
-# Usage: julia convert_to_csv.jl
+# Main execution
 if abspath(PROGRAM_FILE) == @__FILE__
     println("="^60)
-    println("Reactor Data Conversion Script")
+    println("Reactor Data Conversion: Excel → CSV")
     println("="^60)
-    println()
 
     excel_file = "_input/reactor_data_raw.xlsx"
     df = extract_reactor_data(excel_file)
 
     println("\n✓ Conversion complete!")
-    println("Output file: _input/reactor_data.csv")
-    println("Format matches: project_data.csv structure")
 end
-
-# If you're using include() from Julia REPL, call the function directly:
-# julia> include("convert_to_csv.jl")
-# julia> df = extract_reactor_data("_input/reactor_data_raw.xlsx")
