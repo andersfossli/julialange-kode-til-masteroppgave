@@ -294,6 +294,17 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println(combine(groupby(df_work, :type), nrow => :count))
     println()
 
+    # Remove reactors without operational reference units
+    println("\n--- Removing Reactors Without Operational Reference ---")
+    reactors_to_exclude = ["IMSR (300)", "SSR-W", "e-Vinci", "BREST-OD-300", "Brest-OD-300"]
+    initial_count = nrow(df_work)
+    df_work = filter(row -> !(row.name in reactors_to_exclude), df_work)
+    removed_count = initial_count - nrow(df_work)
+    println("Removed $removed_count reactors lacking operational reference units:")
+    println("  - IMSR (300), SSR-W, e-Vinci, BREST-OD-300")
+    println("Remaining reactors: $(nrow(df_work))")
+    println()
+
     # Create output dataframe with exact column structure from project_data.csv
     df_output = DataFrame()
 
@@ -451,32 +462,132 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     println("\n✓ Successfully extracted $(nrow(df_output)) reactors")
     println("✓ Saved to: $output_csv")
 
-    # Print summary statistics
-    println("\n--- Summary by Reactor Type ---")
-    summary_by_type = combine(groupby(df_output, :type)) do sdf
-        (
-            count = nrow(sdf),
-            avg_capacity = round(mean(sdf.plant_capacity), digits=1),
-            avg_investment_per_MW = round(mean(sdf.investment) / 1000, digits=0)  # in thousands USD/MW
-        )
-    end
-    println(summary_by_type)
+    # Generate comprehensive summary statistics table
+    total_reactors = nrow(df_output)
 
-    # Summary by scale (micro/SMR/large)
-    if :scale in propertynames(df_output)
-        println("\n--- Summary by Scale (Micro/SMR/Large) ---")
-        scale_summary = combine(groupby(df_output, :scale)) do sdf
-            (
-                count = nrow(sdf),
-                avg_capacity = round(mean(sdf.plant_capacity), digits=1),
-                avg_investment_per_MW = round(mean(sdf.investment) / 1000, digits=0)  # in thousands USD/MW
-            )
-        end
-        println(scale_summary)
+    println("\n" * "="^80)
+    println("REACTOR DATASET SUMMARY STATISTICS")
+    println("="^80)
+    println("Total reactors in dataset: $total_reactors")
+    println()
+
+    # 1. Summary by Scale
+    println("="^80)
+    println("1. BY SCALE")
+    println("="^80)
+
+    scale_descriptions = Dict(
+        "Large" => "Conventional Generation III/III+ units (EPR, APR, AP1000, etc.)",
+        "SMR" => "Modular LWR, SFR, MSR, and HTR designs under development or deployment",
+        "Micro" => "Experimental or conceptual small-scale designs for remote/off-grid use"
+    )
+
+    scale_ranges = Dict(
+        "Large" => ">300 MWe",
+        "SMR" => "50-300 MWe",
+        "Micro" => "<50 MWe"
+    )
+
+    scale_counts = combine(groupby(df_output, :scale), nrow => :count)
+    sort!(scale_counts, :scale, rev=true)  # Large, SMR, Micro order
+
+    for row in eachrow(scale_counts)
+        scale = row.scale
+        count = row.count
+        share = round(count / total_reactors * 100, digits=1)
+        range_str = get(scale_ranges, scale, "")
+        desc = get(scale_descriptions, scale, "")
+
+        println("\n$scale reactors ($range_str)")
+        println("  Count: $count units ($(share)% of total)")
+        println("  Description: $desc")
     end
 
-    println("\n--- First 5 reactors ---")
-    display_df = df_output[1:min(5, nrow(df_output)), [:name, :type, :scale, :plant_capacity, :investment]]
+    # 2. Summary by Reactor Type
+    println("\n" * "="^80)
+    println("2. BY REACTOR TYPE")
+    println("="^80)
+
+    type_descriptions = Dict(
+        "PWR" => "Dominant reactor type in both SMR and large categories",
+        "BWR" => "Boiling water reactor designs (GE, Hitachi)",
+        "SFR" => "Includes BN, CEFR, and ARC designs",
+        "HTR" => "Includes Fort St. Vrain, HTR-PM, and EM2",
+        "MSR" => "Molten salt reactor concepts (excluded from analysis)",
+        "LFR" => "Lead-cooled fast reactor (excluded from analysis)",
+        "MR" => "Microreactor concepts (excluded from analysis)"
+    )
+
+    type_full_names = Dict(
+        "PWR" => "Pressurized Water Reactor (PWR)",
+        "BWR" => "Boiling Water Reactor (BWR)",
+        "SFR" => "Sodium-cooled Fast Reactor (SFR)",
+        "HTR" => "High-Temperature Gas-cooled Reactor (HTR)",
+        "MSR" => "Molten Salt Reactor (MSR)",
+        "LFR" => "Lead-cooled Fast Reactor (LFR)",
+        "MR" => "Microreactor (MR)"
+    )
+
+    type_counts = combine(groupby(df_output, :type), nrow => :count)
+    sort!(type_counts, :count, rev=true)  # Sort by count descending
+
+    for row in eachrow(type_counts)
+        rtype = row.type
+        count = row.count
+        share = round(count / total_reactors * 100, digits=1)
+        full_name = get(type_full_names, rtype, rtype)
+        desc = get(type_descriptions, rtype, "")
+
+        println("\n$full_name")
+        println("  Count: $count units ($(share)% of total)")
+        println("  Description: $desc")
+    end
+
+    # 3. Summary by Geographic Region
+    println("\n" * "="^80)
+    println("3. BY GEOGRAPHIC REGION")
+    println("="^80)
+
+    region_descriptions = Dict(
+        "Western / Developed" => "OECD-based projects emphasizing vendor-led modularization",
+        "Emerging Asia" => "State-driven programs focusing on standardized reactor fleets",
+        "Eastern Europe" => "Former Soviet bloc nations",
+        "South America" => "Regional nuclear development programs",
+        "Middle East / Africa" => "Emerging nuclear energy markets",
+        "Other" => "Other regions"
+    )
+
+    region_countries = Dict(
+        "Western / Developed" => "USA, UK, France, Finland, Canada, Japan, South Korea",
+        "Emerging Asia" => "China, Russia, India, Pakistan",
+        "Eastern Europe" => "Ukraine, Czech Republic, Slovakia",
+        "South America" => "Argentina, Brazil",
+        "Middle East / Africa" => "UAE, Saudi Arabia, Egypt, South Africa",
+        "Other" => "Various"
+    )
+
+    region_counts = combine(groupby(df_output, :region), nrow => :count)
+    sort!(region_counts, :count, rev=true)  # Sort by count descending
+
+    for row in eachrow(region_counts)
+        region = row.region
+        count = row.count
+        share = round(count / total_reactors * 100, digits=1)
+        desc = get(region_descriptions, region, "")
+        countries = get(region_countries, region, "")
+
+        println("\n$region")
+        println("  Count: $count units ($(share)% of total)")
+        println("  Countries: $countries")
+        println("  Description: $desc")
+    end
+
+    println("\n" * "="^80)
+    println()
+
+    # Show first few reactors as example
+    println("--- Sample Reactors (First 5) ---")
+    display_df = df_output[1:min(5, nrow(df_output)), [:name, :type, :scale, :region, :plant_capacity]]
     println(display_df)
 
     return df_output
