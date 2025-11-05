@@ -294,3 +294,89 @@ fig_wacc_sensitivity = Base.invokelatest(
 
 save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
 @info("WACC sensitivity plot saved (0 new simulations, used existing data)")
+
+##### OCC vs Year plot (Large reactors only) #####
+# Shows Western vs Asian reactors with linear trend lines
+
+@info("Generating OCC vs Year plot for Large reactors")
+
+# Check if year column exists
+if :year in propertynames(pjs_dat)
+    # Filter to Large reactors only
+    df_large = filter(row -> row.scale == "Large", pjs_dat)
+
+    if nrow(df_large) > 0
+        # Calculate OCC (USD/kW) from investment (USD/MW)
+        df_large.occ = df_large.investment ./ 1000
+
+        # Group by Western vs Asian
+        western_regions = ["Western / Developed", "Eastern Europe", "South America"]
+        asian_regions = ["Emerging Asia"]
+
+        df_western = filter(row -> row.region in western_regions, df_large)
+        df_asian = filter(row -> row.region in asian_regions, df_large)
+
+        # Create plot
+        fig_occ_year = Figure(size=(900, 600))
+        ax_occ = Axis(fig_occ_year[1, 1],
+                     xlabel = "Grid Connection Year",
+                     ylabel = "OCC (USD2020/kW)",
+                     title = "Overnight Capital Cost vs Year (Large Reactors)")
+
+        # Plot Western reactors (blue)
+        if nrow(df_western) > 0
+            scatter!(ax_occ, df_western.year, df_western.occ,
+                    markersize = 12, color = :blue, strokewidth = 1, strokecolor = :black,
+                    label = "Western")
+
+            # Add linear trend line (simple linear regression)
+            if nrow(df_western) > 1
+                x_w = Float64.(df_western.year)
+                y_w = Float64.(df_western.occ)
+                n_w = length(x_w)
+                slope_w = (n_w * sum(x_w .* y_w) - sum(x_w) * sum(y_w)) / (n_w * sum(x_w.^2) - sum(x_w)^2)
+                intercept_w = mean(y_w) - slope_w * mean(x_w)
+
+                year_range_w = minimum(x_w):maximum(x_w)
+                occ_pred_w = intercept_w .+ slope_w .* year_range_w
+
+                lines!(ax_occ, year_range_w, occ_pred_w,
+                      color = :blue, linewidth = 2, linestyle = :dash)
+            end
+        end
+
+        # Plot Asian reactors (orange)
+        if nrow(df_asian) > 0
+            scatter!(ax_occ, df_asian.year, df_asian.occ,
+                    markersize = 12, color = :orange, strokewidth = 1, strokecolor = :black,
+                    label = "Asian")
+
+            # Add linear trend line
+            if nrow(df_asian) > 1
+                x_a = Float64.(df_asian.year)
+                y_a = Float64.(df_asian.occ)
+                n_a = length(x_a)
+                slope_a = (n_a * sum(x_a .* y_a) - sum(x_a) * sum(y_a)) / (n_a * sum(x_a.^2) - sum(x_a)^2)
+                intercept_a = mean(y_a) - slope_a * mean(x_a)
+
+                year_range_a = minimum(x_a):maximum(x_a)
+                occ_pred_a = intercept_a .+ slope_a .* year_range_a
+
+                lines!(ax_occ, year_range_a, occ_pred_a,
+                      color = :orange, linewidth = 2, linestyle = :dash)
+            end
+        end
+
+        axislegend(ax_occ, position = :rt)
+        ax_occ.xgridvisible = true
+        ax_occ.ygridvisible = true
+
+        save("$outputpath/fig-occ_vs_year-large.pdf", fig_occ_year)
+        @info("OCC vs Year plot saved")
+    else
+        @info("No Large reactors found - skipping OCC vs Year plot")
+    end
+else
+    @info("Year column not found in reactor_data.csv - skipping OCC vs Year plot")
+    @info("Run convert_to_csv.jl to regenerate CSV with year column")
+end
