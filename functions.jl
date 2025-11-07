@@ -613,7 +613,7 @@ The gen_scaled_investment function takes in two arguments, scaling and pj, and r
             The range (lower and upper bound) of scaled investment cost based on Rothwell in USD per MW.
 """
 function gen_scaled_investment(scaling::Vector, pj::project)
-    
+
     # generation of project specific scaled investment cost ranges
     # note that the scaling parameter here are converted such that Rothwell and Roulstone coincide.
         # deterministic investment cost based on manufacturer estimates [USD/MW]
@@ -622,6 +622,9 @@ function gen_scaled_investment(scaling::Vector, pj::project)
         scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) .^ scaling / pj.plant_capacity)
         # scaled investment cost based on Rothwell [USD/MW]
         scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(scaling) ./ log(2)) / pj.plant_capacity)
+        # scaled investment cost based on Carelli (fixed β = 0.20) [USD/MW]
+        carelli_scaling = 0.20
+        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) ^ carelli_scaling / pj.plant_capacity)
 
     # output
     return(scaled_investment = scaled_investment)

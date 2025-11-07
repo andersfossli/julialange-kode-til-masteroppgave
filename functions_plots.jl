@@ -746,11 +746,17 @@ function investment_plot_by_scale(pjs::Vector, scaling_plot::Vector)
                                1:length(reactor_names),
                                marker = :star5, color = :black, markersize = 15)
 
+        # Add Carelli scaling (row 6) as orange circles
+        carelli = scatter!(ax, collect(scaled_investments[6,:]),
+                          1:length(reactor_names),
+                          marker = :circle, color = :orange, markersize = 12,
+                          strokewidth = 2, strokecolor = :darkorange)
+
         # Add legend only to first subplot
         if row_idx == 1
             Legend(fig[row_idx, 1],
-                   [manufacturer, roulstone, rothwell],
-                   ["Manufacturer", "Roulstone", "Rothwell"],
+                   [manufacturer, roulstone, rothwell, carelli],
+                   ["Manufacturer", "Roulstone", "Rothwell", "Carelli"],
                    tellheight = false, tellwidth = false,
                    halign = :right, valign = :top,
                    framevisible = true, orientation = :vertical)
