@@ -1074,8 +1074,10 @@ function estimate_conditional_variance_V_S(pj::project, param_set_S::Vector{Symb
         X_S_fixed = outer_base[k]
 
         # Initialize RNG with deterministic seed for CRN
-        # Same seed for same (coalition, k) → inner loops aligned across V(S) and V(S∪{i})
-        rng_seed = hash((coalition_id, k))
+        # CRITICAL: Seed based ONLY on k (not coalition_id!)
+        # This ensures SAME random sequence for k=1 across ALL coalitions
+        # That's the definition of Common Random Numbers!
+        rng_seed = hash(("shapley_crn", k))
         rng = Random.MersenneTwister(rng_seed)
 
         # INNER LOOP: Sample X_~S with seeded RNG
