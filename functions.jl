@@ -984,29 +984,56 @@ function generate_combined_sample_from_outer_base(param_set_S::Vector{Symbol},
     end
 
     # ==================================================================
-    # Investment (use seeded RNG for CRN)
+    # Investment (use seeded RNG for CRN - ALL scaling modes)
     # ==================================================================
     if :investment in param_set_S
         combined[:investment] = [X_S_fixed.investment[1]]
     else
-        # Generate investment using seeded RNG (not gen_rand_vars which uses global RNG)
-        # Implement Rothwell scaling directly with seeded RNG
-        if opt_scaling == "rothwell"
-            scaling = [0.20, 0.75]  # Rothwell scaling parameters
-            # Generate scaling factor with seeded RNG
-            rand_scaling_val = rand(rng)  # Use seeded RNG!
-            rand_scaling = 2^(scaling[1]-1) + (2^(scaling[2]-1) - 2^(scaling[1]-1)) * rand_scaling_val
-            # Apply Rothwell formula
-            soak_factor = 1.0  # No SOAK discount in base simulations
+        # Generate investment using seeded RNG for ALL scaling modes (not gen_rand_vars!)
+        # This ensures CRN is preserved across all coalitions
+        scaling_lo, scaling_hi = 0.20, 0.75  # Default scaling range
+        soak_factor = 1.0  # No SOAK discount in base simulations
+
+        if opt_scaling == "manufacturer"
+            # Manufacturer: use stated investment cost (deterministic)
+            combined[:investment] = [pj.investment * pj.plant_capacity]
+
+        elseif opt_scaling == "roulstone"
+            # Roulstone: β ~ U(scaling_lo, scaling_hi), linear scaling
+            u = rand(rng)  # Seeded RNG!
+            beta = scaling_lo + (scaling_hi - scaling_lo) * u
             rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor *
-                             (pj.plant_capacity/pj.reference_pj[2]) ^ (1 + log(rand_scaling) / log(2))
+                             (pj.plant_capacity / pj.reference_pj[2]) ^ beta
             combined[:investment] = [rand_investment]
+
+        elseif opt_scaling == "rothwell"
+            # Rothwell: β(α) = 1 + log(α)/log(2), α ~ U(2^(lo-1), 2^(hi-1))
+            u = rand(rng)  # Seeded RNG!
+            rand_scaling = 2^(scaling_lo-1) + (2^(scaling_hi-1) - 2^(scaling_lo-1)) * u
+            rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor *
+                             (pj.plant_capacity / pj.reference_pj[2]) ^ (1 + log(rand_scaling) / log(2))
+            combined[:investment] = [rand_investment]
+
+        elseif opt_scaling == "uniform"
+            # Uniform: interpolate between bounds at scaling_lo and scaling_hi
+            inv_lo = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor *
+                    (pj.plant_capacity / pj.reference_pj[2]) ^ scaling_lo
+            inv_hi = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor *
+                    (pj.plant_capacity / pj.reference_pj[2]) ^ scaling_hi
+            u = rand(rng)  # Seeded RNG!
+            combined[:investment] = [inv_lo + (inv_hi - inv_lo) * u]
+
+        elseif opt_scaling == "carelli"
+            # Carelli: fixed β = 0.20, normalized to P_ref = 1200 MWe
+            p_ref = 1200.0
+            beta_carelli = 0.20
+            # Scale-independent OCC (normalized to reference capacity)
+            occ_ref = pj.reference_pj[1] * pj.reference_pj[2]  # Reference OCC at ref capacity
+            occ_si = occ_ref * (pj.plant_capacity / p_ref) ^ beta_carelli
+            combined[:investment] = [occ_si * pj.plant_capacity]
+
         else
-            # For other scaling methods, fall back to gen_rand_vars (FIXME: should also use seeded RNG)
-            @warn("Investment generation for $opt_scaling uses global RNG - CRN may be violated")
-            temp_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
-                                     construction_time_range=construction_time_range)
-            combined[:investment] = temp_vars.investment
+            error("Unknown opt_scaling mode: $opt_scaling")
         end
     end
 
