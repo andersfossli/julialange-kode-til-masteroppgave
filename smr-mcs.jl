@@ -59,5 +59,10 @@ include("data.jl");
 
 ##### run simulation #####
 
+# NOTE: Learning is DISABLED in base Monte Carlo simulation
+# - apply_learning=false (default)
+# - apply_soak_discount=false (default)
+# For learning scenarios with explicit LR/N parameters, use smr-mcs-learning.jl instead
+
 @info("running simulation")
 include("run_simulation.jl")
