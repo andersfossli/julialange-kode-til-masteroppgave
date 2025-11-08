@@ -653,6 +653,224 @@ function si_total_order(A,B,AB)
 end
 
 """
+    shapley_weight(subset_size::Int, total_params::Int)
+
+Calculate the Shapley weight for a subset of given size.
+
+The Shapley weight is: w(|S|, d) = |S|! * (d - |S| - 1)! / d!
+
+# Arguments
+- `subset_size::Int`: Size of the subset |S|
+- `total_params::Int`: Total number of parameters d
+
+# Returns
+- Float64: The Shapley weight
+"""
+function shapley_weight(subset_size::Int, total_params::Int)
+    return factorial(subset_size) * factorial(total_params - subset_size - 1) / factorial(total_params)
+end
+
+"""
+    create_conditional_sample(base_A, base_B, fixed_params::Vector{Symbol})
+
+Create a conditional sample where specified parameters are fixed from base_B, others from base_A.
+
+This is used for computing conditional variances in Shapley sensitivity analysis.
+
+# Arguments
+- `base_A`: Named tuple of random variables (reference sample)
+- `base_B`: Named tuple of random variables (alternative sample)
+- `fixed_params::Vector{Symbol}`: Parameters to fix from base_B
+
+# Returns
+- Named tuple with conditional sample (fixed parameters from B, rest from A)
+"""
+function create_conditional_sample(base_A, base_B, fixed_params::Vector{Symbol})
+    # Start with all parameters from A
+    sample = Dict{Symbol, Any}(
+        :wacc => base_A.wacc,
+        :electricity_price => base_A.electricity_price,
+        :loadfactor => base_A.loadfactor,
+        :investment => base_A.investment,
+        :construction_time => base_A.construction_time
+    )
+
+    # Replace fixed parameters with values from B
+    for param in fixed_params
+        sample[param] = getfield(base_B, param)
+    end
+
+    # Return as named tuple
+    return (wacc = sample[:wacc],
+            electricity_price = sample[:electricity_price],
+            loadfactor = sample[:loadfactor],
+            investment = sample[:investment],
+            construction_time = sample[:construction_time])
+end
+
+"""
+    shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project; construction_time_range::Union{Nothing,Vector}=nothing)
+
+Calculate Shapley sensitivity indices for correlated input parameters.
+
+Unlike classical Sobol indices which assume independence, Shapley effects properly handle
+correlated inputs by fairly distributing the explained variance among all parameters based
+on game theory (Shapley values from cooperative game theory).
+
+# Methodology
+The Shapley effect for parameter i is computed as:
+
+Sh_i = Σ_{S⊆D\\{i}} w(|S|, d) * [V(Y|X_{S∪{i}}) - V(Y|X_S)]
+
+where:
+- d = total number of parameters (4: wacc, construction_time, loadfactor, investment)
+- S = subset of parameters not including i
+- w(|S|, d) = |S|! * (d - |S| - 1)! / d! (Shapley weight)
+- V(Y|X_S) = variance of output conditioned on parameters in S
+
+# Properties
+- Sh_i ∈ [0, 1] for all i
+- Σ Sh_i = 1 (efficiency: effects sum to 100% of variance)
+- Properly handles correlation (e.g., WACC × construction_time with ρ=0.4)
+- More computationally expensive than Sobol (~3-5× cost)
+
+# Arguments
+- `opt_scaling::String`: Scaling method ("manufacturer", "roulstone", "rothwell", "uniform", "carelli")
+- `n::Int64`: Number of Monte Carlo samples per evaluation
+- `wacc::Vector`: [min, max] for WACC distribution
+- `electricity_price_mean::Float64`: Mean electricity price (fixed)
+- `pj::project`: Project struct
+- `construction_time_range::Union{Nothing,Vector}=nothing`: [min, max] for construction time
+
+# Returns
+Named tuple with Shapley effects:
+- `sh_npv`: Shapley effects for NPV (wacc, construction_time, loadfactor, investment)
+- `sh_lcoe`: Shapley effects for LCOE (wacc, construction_time, loadfactor, investment)
+
+# References
+- Owen, A.B. (2014). "Sobol' indices and Shapley value." SIAM/ASA Journal on Uncertainty Quantification.
+- Song, E., et al. (2016). "Shapley effects for global sensitivity analysis: Theory and computation."
+- Iooss, B. & Prieur, C. (2019). "Shapley effects for sensitivity analysis with correlated inputs."
+
+# Example
+```julia
+sh_results = shapley_sensitivity_index("rothwell", 10000, [0.04, 0.10], 74.0, pj;
+                                       construction_time_range=[3, 7])
+println("Shapley effects for LCOE:", sh_results.sh_lcoe)
+```
+"""
+function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
+                                   construction_time_range::Union{Nothing,Vector}=nothing)
+
+    @info "Computing Shapley sensitivity indices (handles correlated inputs)"
+
+    # Define parameter names
+    param_names = [:wacc, :construction_time, :loadfactor, :investment]
+    d = length(param_names)
+
+    # Generate base samples A and B (independent draws with correlation structure preserved)
+    @info "Generating base samples A and B"
+    rand_vars_A = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
+                                construction_time_range=construction_time_range)
+    rand_vars_B = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
+                                construction_time_range=construction_time_range)
+
+    # Run base simulations
+    @info "Running base simulations (A and B)"
+    res_A = investment_simulation(pj, rand_vars_A)
+    res_B = investment_simulation(pj, rand_vars_B)
+
+    # Combine A and B for total variance estimation
+    npv_all = vcat(res_A.npv, res_B.npv)
+    lcoe_all = vcat(res_A.lcoe, res_B.lcoe)
+    total_var_npv = var(npv_all, corrected=false)
+    total_var_lcoe = var(lcoe_all, corrected=false)
+
+    @info "Total variance - NPV: $(round(total_var_npv, sigdigits=4)), LCOE: $(round(total_var_lcoe, sigdigits=4))"
+
+    # Initialize Shapley effects
+    sh_npv = Dict{Symbol, Float64}()
+    sh_lcoe = Dict{Symbol, Float64}()
+
+    # For each parameter i
+    for (i_idx, param_i) in enumerate(param_names)
+        @info "Computing Shapley effect for parameter: $param_i"
+
+        shapley_npv = 0.0
+        shapley_lcoe = 0.0
+
+        # Other parameters (excluding i)
+        other_params = [p for p in param_names if p != param_i]
+
+        # For each subset size
+        for subset_size in 0:(d-1)
+            # Get all combinations of subset_size from other parameters
+            for S in combinations(other_params, subset_size)
+                # Compute Shapley weight
+                w = shapley_weight(subset_size, d)
+
+                # Create conditional samples
+                # S: parameters in S fixed from B, rest from A
+                sample_S = create_conditional_sample(rand_vars_A, rand_vars_B, collect(S))
+
+                # S ∪ {i}: parameters in S and i fixed from B, rest from A
+                S_union_i = vcat(collect(S), [param_i])
+                sample_S_union_i = create_conditional_sample(rand_vars_A, rand_vars_B, S_union_i)
+
+                # Run simulations for conditional samples
+                @info "  Subset $S (size $subset_size): weight = $(round(w, digits=4))"
+                res_S = investment_simulation(pj, sample_S)
+                res_S_union_i = investment_simulation(pj, sample_S_union_i)
+
+                # Compute conditional variance contributions
+                # ΔV_i(S) = V(Y | X_S∪{i}) - V(Y | X_S)
+                # Using the variance of conditional means estimator
+                delta_var_npv = var(res_S_union_i.npv, corrected=false) - var(res_S.npv, corrected=false)
+                delta_var_lcoe = var(res_S_union_i.lcoe, corrected=false) - var(res_S.lcoe, corrected=false)
+
+                # Add weighted contribution
+                shapley_npv += w * delta_var_npv
+                shapley_lcoe += w * delta_var_lcoe
+            end
+        end
+
+        # Normalize by total variance to get proportion
+        sh_npv[param_i] = shapley_npv / total_var_npv
+        sh_lcoe[param_i] = shapley_lcoe / total_var_lcoe
+
+        # Apply correction (ensure [0,1] range)
+        sh_npv[param_i] = si_correct(sh_npv[param_i])
+        sh_lcoe[param_i] = si_correct(sh_lcoe[param_i])
+
+        @info "  Shapley effect ($param_i): NPV = $(round(sh_npv[param_i], digits=4)), LCOE = $(round(sh_lcoe[param_i], digits=4))"
+    end
+
+    # Convert to named tuples
+    sh_npv_tuple = (wacc = sh_npv[:wacc],
+                    construction_time = sh_npv[:construction_time],
+                    loadfactor = sh_npv[:loadfactor],
+                    investment = sh_npv[:investment])
+
+    sh_lcoe_tuple = (wacc = sh_lcoe[:wacc],
+                     construction_time = sh_lcoe[:construction_time],
+                     loadfactor = sh_lcoe[:loadfactor],
+                     investment = sh_lcoe[:investment])
+
+    # Verify efficiency property (sum should be ≈ 1.0)
+    sum_npv = sum(values(sh_npv))
+    sum_lcoe = sum(values(sh_lcoe))
+    @info "Shapley efficiency check - NPV sum: $(round(sum_npv, digits=4)), LCOE sum: $(round(sum_lcoe, digits=4))"
+
+    if abs(sum_npv - 1.0) > 0.1 || abs(sum_lcoe - 1.0) > 0.1
+        @warn "Shapley effects do not sum to 1.0 (efficiency property violated). This may indicate numerical issues."
+    end
+
+    # Output
+    @info "Shapley sensitivity results" pj.name pj.type Sh_NPV = sh_npv_tuple Sh_LCOE = sh_lcoe_tuple
+    return (sh_npv = sh_npv_tuple, sh_lcoe = sh_lcoe_tuple)
+end
+
+"""
 The sensiticity_index function calculates sensitivity indices for a given project based on the input parameters. The function takes in five arguments:
     opt_scaling: A string representing the type of optimization scaling to use.
     n: An integer representing the number of simulations to run for each random variable.
