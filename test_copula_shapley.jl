@@ -2,6 +2,10 @@ using Pkg
 Pkg.activate(pwd())
 using Statistics, Plots
 
+# Define paths required by data.jl
+inputpath = "_input"
+outputpath = "_output"
+
 include("functions.jl")
 include("data.jl")
 
