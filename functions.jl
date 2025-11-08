@@ -1064,12 +1064,12 @@ Estimate V(S) = Var(E[Y | X_S]) using replicated nested sampling with SHARED out
 CRITICAL FIXES:
 - Uses pre-generated outer_base (same for all coalitions) to reduce variance
 - Applies Common Random Numbers (CRN) for inner loops to reduce noise in ΔV = V(S∪{i}) - V(S)
-- Each inner loop uses deterministic seed based on (coalition_id, k) for reproducibility
+- Each inner loop uses deterministic seed based ONLY on k (NOT coalition_id) for proper CRN
 
 # Algorithm
 For k = 1 to n_outer:
     1. Extract X_S^(k) from outer_base[k] (pre-generated)
-    2. Initialize RNG with seed = hash((coalition_id, k)) [CRN]
+    2. Initialize RNG with seed = hash(("shapley_crn", k)) [CRN - same for ALL coalitions!]
     3. For j = 1 to n_inner:
         - Generate X_~S^(j) using seeded RNG
         - Compute Y^(k,j) = model(X_S^(k), X_~S^(j))
@@ -1085,7 +1085,10 @@ Return: Var(conditional means over k)
 - wacc: WACC range
 - electricity_price_mean: Fixed electricity price
 - construction_time_range: CT range
-- coalition_id: Unique identifier for this coalition (for CRN)
+- coalition_id: Unique identifier (currently unused - kept for API compatibility.
+  NOTE: Intentionally NOT used in RNG seeding because CRN requires the SAME
+  random sequence for all coalitions at the same k. Seeding by coalition_id
+  would destroy CRN and introduce variance in ΔV estimates.)
 
 # Returns
 - (V_S_npv::Float64, V_S_lcoe::Float64)
