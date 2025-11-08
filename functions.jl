@@ -675,8 +675,11 @@ end
                                             rand_vars_S_fixed, ...)
 
 Combine:
-- Fixed values from S (the k-th outer loop realization)
-- New random values for ~S (the j-th inner loop realization)
+- Fixed values from S (the k-th outer loop realization - same for all j)
+- New random values for ~S (the j-th inner loop realization - different for each j)
+
+CRITICAL: Implements conditional sampling for Gaussian copula when one of {WACC,CT}
+is fixed and the other varies.
 
 Returns: Named tuple with 1 sample (single realization)
 """
@@ -688,57 +691,126 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
                                                   electricity_price_mean::Float64, pj::project,
                                                   construction_time_range::Union{Nothing,Vector})
 
-    # Generate parameters NOT in S
-    # CRITICAL: If both WACC and CT are NOT in S, they must be generated with copula
-    # If only one is in ~S, generate independently
-
-    needs_copula = (:wacc in params_not_in_S) && (:construction_time in params_not_in_S)
-
-    if needs_copula
-        # Generate correlated pair
-        temp_rand_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
-                                      construction_time_range=construction_time_range)
-    else
-        # Generate independently for parameters in ~S
-        temp_rand_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
-                                      construction_time_range=construction_time_range)
-    end
-
-    # Build combined sample: Use fixed from S, varying from ~S
-    total_time = size(temp_rand_vars.loadfactor, 2)
-
     combined = Dict{Symbol, Any}()
 
-    # WACC
-    if :wacc in param_set_S
-        combined[:wacc] = [rand_vars_S_fixed[:wacc][j]]
+    # ==================================================================
+    # WACC and Construction Time: Handle copula dependencies
+    # ==================================================================
+
+    # CASE 1: Both WACC and CT in S (both fixed)
+    if (:wacc in param_set_S) && (:construction_time in param_set_S)
+        combined[:wacc] = [rand_vars_S_fixed[:wacc][1]]  # Same value for all j
+        combined[:construction_time] = [rand_vars_S_fixed[:construction_time][1]]
+
+    # CASE 2: Both WACC and CT in ~S (both vary, use copula)
+    elseif (:wacc in params_not_in_S) && (:construction_time in params_not_in_S)
+        wacc_sample, ct_sample = generate_correlated_samples(
+            1, wacc, construction_time_range; ρ=0.4
+        )
+        combined[:wacc] = wacc_sample
+        combined[:construction_time] = [round(Int, ct_sample[1])]
+
+    # CASE 3: WACC fixed, CT varies - need conditional sampling
+    elseif (:wacc in param_set_S) && (:construction_time in params_not_in_S)
+        # Sample CT conditionally given fixed WACC
+        # For Gaussian copula: CT | WACC ~ TriangularDist adjusted by copula
+        fixed_wacc = rand_vars_S_fixed[:wacc][1]
+
+        # Convert fixed WACC to quantile
+        wacc_dist = TriangularDist(wacc[1], mean(wacc), wacc[2])
+        u_wacc = cdf(wacc_dist, fixed_wacc)
+
+        # Convert to standard normal space
+        z_wacc = quantile(Normal(0,1), u_wacc)
+
+        # Conditional distribution: Z_CT | Z_WACC ~ N(ρ*z_wacc, 1-ρ²)
+        ρ = 0.4
+        z_ct_conditional = ρ * z_wacc + sqrt(1 - ρ^2) * randn()
+
+        # Back to uniform
+        u_ct = cdf(Normal(0,1), z_ct_conditional)
+
+        # Back to CT space
+        ct_dist = TriangularDist(construction_time_range[1],
+                                mean(construction_time_range),
+                                construction_time_range[2])
+        ct_sample = quantile(ct_dist, u_ct)
+
+        combined[:wacc] = [fixed_wacc]
+        combined[:construction_time] = [round(Int, ct_sample)]
+
+    # CASE 4: CT fixed, WACC varies - symmetric to Case 3
+    elseif (:construction_time in param_set_S) && (:wacc in params_not_in_S)
+        fixed_ct = Float64(rand_vars_S_fixed[:construction_time][1])
+
+        ct_dist = TriangularDist(construction_time_range[1],
+                                mean(construction_time_range),
+                                construction_time_range[2])
+        u_ct = cdf(ct_dist, fixed_ct)
+        z_ct = quantile(Normal(0,1), u_ct)
+
+        ρ = 0.4
+        z_wacc_conditional = ρ * z_ct + sqrt(1 - ρ^2) * randn()
+        u_wacc = cdf(Normal(0,1), z_wacc_conditional)
+
+        wacc_dist = TriangularDist(wacc[1], mean(wacc), wacc[2])
+        wacc_sample = quantile(wacc_dist, u_wacc)
+
+        combined[:wacc] = [wacc_sample]
+        combined[:construction_time] = [round(Int, fixed_ct)]
+
+    # CASE 5: Neither in S (shouldn't happen, but handle for completeness)
     else
-        combined[:wacc] = temp_rand_vars.wacc
+        # Generate independently
+        if :wacc in param_set_S
+            combined[:wacc] = [rand_vars_S_fixed[:wacc][1]]
+        else
+            wacc_dist = TriangularDist(wacc[1], mean(wacc), wacc[2])
+            combined[:wacc] = rand(wacc_dist, 1)
+        end
+
+        if :construction_time in param_set_S
+            combined[:construction_time] = [rand_vars_S_fixed[:construction_time][1]]
+        else
+            ct_dist = TriangularDist(construction_time_range[1],
+                                    mean(construction_time_range),
+                                    construction_time_range[2])
+            combined[:construction_time] = [round(Int, rand(ct_dist, 1)[1])]
+        end
     end
 
-    # Construction time
-    if :construction_time in param_set_S
-        combined[:construction_time] = [rand_vars_S_fixed[:construction_time][j]]
-    else
-        combined[:construction_time] = temp_rand_vars.construction_time
-    end
-
-    # Load factor
+    # ==================================================================
+    # Load Factor (always independent)
+    # ==================================================================
     if :loadfactor in param_set_S
-        combined[:loadfactor] = rand_vars_S_fixed[:loadfactor][j:j, :]
+        combined[:loadfactor] = rand_vars_S_fixed[:loadfactor][1:1, :]  # Fixed value (first row)
     else
-        combined[:loadfactor] = temp_rand_vars.loadfactor
+        lf_mode = pj.loadfactor[1] + 0.6 * (pj.loadfactor[2] - pj.loadfactor[1])
+        lf_dist = TriangularDist(pj.loadfactor[1], lf_mode, pj.loadfactor[2])
+        # Get total_time from electricity_price array
+        total_time = haskey(rand_vars_S_fixed, :electricity_price) ? size(rand_vars_S_fixed[:electricity_price], 2) : 67
+        combined[:loadfactor] = rand(lf_dist, 1, total_time)
     end
 
-    # Investment
+    # ==================================================================
+    # Investment (depends on scaling, WACC, CT might affect it)
+    # ==================================================================
     if :investment in param_set_S
-        combined[:investment] = [rand_vars_S_fixed[:investment][j]]
+        combined[:investment] = [rand_vars_S_fixed[:investment][1]]
     else
-        combined[:investment] = temp_rand_vars.investment
+        # Generate based on scaling
+        # For rothwell/roulstone, investment doesn't depend on WACC/CT in gen_rand_vars
+        # But for completeness, generate fresh
+        temp_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
+                                 construction_time_range=construction_time_range)
+        combined[:investment] = temp_vars.investment
     end
 
-    # Electricity price (always varying, not a sensitivity parameter)
-    combined[:electricity_price] = temp_rand_vars.electricity_price
+    # ==================================================================
+    # Electricity price (always fixed at mean, not a sensitivity parameter)
+    # ==================================================================
+    total_time = haskey(rand_vars_S_fixed, :electricity_price) ? size(rand_vars_S_fixed[:electricity_price], 2) : 67
+    combined[:electricity_price] = fill(electricity_price_mean, 1, total_time)
 
     return (wacc = combined[:wacc],
             construction_time = combined[:construction_time],
@@ -1069,6 +1141,70 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     if abs(sum_npv - 1.0) > 0.1 || abs(sum_lcoe - 1.0) > 0.1
         @warn "Shapley effects do not sum to 1.0 (efficiency property violated). This may indicate numerical issues."
     end
+
+    # ═══════════════════════════════════════════════════════════════
+    # VALIDATION DIAGNOSTICS
+    # ═══════════════════════════════════════════════════════════════
+    println("\n" * "="^80)
+    println("SHAPLEY VALIDATION DIAGNOSTICS")
+    println("="^80)
+
+    # Test 1: V(∅) should be ≈ 0
+    println("\nTest 1: Empty coalition V(∅)")
+    V_empty_npv, V_empty_lcoe = estimate_conditional_variance_V_S(
+        pj, Symbol[], n_outer, n_inner,
+        opt_scaling, wacc, electricity_price_mean,
+        construction_time_range, rand_vars_A
+    )
+    println("  V(∅) NPV:  $(V_empty_npv) (should be ≈ 0)")
+    println("  V(∅) LCOE: $(V_empty_lcoe) (should be ≈ 0)")
+    println("  Ratio to total - NPV:  $(round(V_empty_npv / total_var_npv, digits=4)) (should be < 0.01)")
+    println("  Ratio to total - LCOE: $(round(V_empty_lcoe / total_var_lcoe, digits=4)) (should be < 0.01)")
+
+    # Test 2: V(all) should ≈ total variance
+    println("\nTest 2: Full coalition V({WACC, CT, LF, Inv})")
+    V_full_npv, V_full_lcoe = estimate_conditional_variance_V_S(
+        pj, [:wacc, :construction_time, :loadfactor, :investment], n_outer, n_inner,
+        opt_scaling, wacc, electricity_price_mean,
+        construction_time_range, rand_vars_A
+    )
+    println("  V(all) NPV:  $(V_full_npv)")
+    println("  Total var NPV: $(total_var_npv)")
+    println("  Ratio: $(round(V_full_npv / total_var_npv, digits=4)) (should be ≈ 1.0)")
+    println("  V(all) LCOE: $(V_full_lcoe)")
+    println("  Total var LCOE: $(total_var_lcoe)")
+    println("  Ratio: $(round(V_full_lcoe / total_var_lcoe, digits=4)) (should be ≈ 1.0)")
+
+    # Test 3: Individual parameter effects
+    println("\nTest 3: Individual parameter conditional variances")
+    for param in [:wacc, :construction_time, :loadfactor, :investment]
+        V_param_npv, V_param_lcoe = estimate_conditional_variance_V_S(
+            pj, [param], n_outer, n_inner,
+            opt_scaling, wacc, electricity_price_mean,
+            construction_time_range, rand_vars_A
+        )
+        println("  V({$param}) NPV:  $(V_param_npv) ($(round(100*V_param_npv/total_var_npv, digits=1))%)")
+        println("  V({$param}) LCOE: $(V_param_lcoe) ($(round(100*V_param_lcoe/total_var_lcoe, digits=1))%)")
+    end
+
+    # Test 4: Monotonicity check for WACC
+    println("\nTest 4: Monotonicity check (V should increase as S grows)")
+    V_wacc_npv, V_wacc_lcoe = estimate_conditional_variance_V_S(
+        pj, [:wacc], n_outer, n_inner,
+        opt_scaling, wacc, electricity_price_mean,
+        construction_time_range, rand_vars_A
+    )
+    V_wacc_ct_npv, V_wacc_ct_lcoe = estimate_conditional_variance_V_S(
+        pj, [:wacc, :construction_time], n_outer, n_inner,
+        opt_scaling, wacc, electricity_price_mean,
+        construction_time_range, rand_vars_A
+    )
+    println("  V({WACC}) LCOE: $(V_wacc_lcoe)")
+    println("  V({WACC,CT}) LCOE: $(V_wacc_ct_lcoe)")
+    println("  Difference: $(V_wacc_ct_lcoe - V_wacc_lcoe)")
+    println("  Monotonic? $(V_wacc_ct_lcoe >= V_wacc_lcoe ? "✓ YES" : "✗ NO (VIOLATION)")")
+
+    println("="^80)
 
     # Output
     @info "Shapley sensitivity results" pj.name pj.type Sh_NPV = sh_npv_tuple Sh_LCOE = sh_lcoe_tuple
