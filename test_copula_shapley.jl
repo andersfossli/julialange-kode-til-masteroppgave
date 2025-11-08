@@ -14,6 +14,9 @@ n_test = 1000
 wacc = [0.04, 0.10]
 ct_range = [3, 7]
 
+# Scaling parameter (required by rothwell/roulstone scaling methods)
+scaling = [0.20, 0.75]
+
 println("="^80)
 println("TEST 1: Gaussian Copula with Triangular Marginals")
 println("="^80)
