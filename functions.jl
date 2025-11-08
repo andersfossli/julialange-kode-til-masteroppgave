@@ -1224,7 +1224,7 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     # Tradeoff: accuracy vs computational cost
     # For testing: n_outer=20, n_inner=50 → 1000 evals/coalition
     # For production: n_outer=50, n_inner=100 → 5000 evals/coalition
-    n_outer = 30   # Number of X_S realizations (outer loop)
+    n_outer = 50   # Number of X_S realizations (outer loop) - PRODUCTION
     n_inner = 100  # Number of X_~S samples per X_S (inner loop)
 
     @info "Nested sampling parameters: n_outer=$n_outer, n_inner=$n_inner"

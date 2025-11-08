@@ -17,7 +17,7 @@ include("data.jl");
 ##### further simulation data #####
 
     # number of Monte Carlo runs
-    n = Int64(10000);
+    n = Int64(100000);  # PRODUCTION: 100k samples for robust estimates
 
     # wholesale electricity price [USD/MWh] - now fixed at mean value
     # (electricity price doesn't affect LCOE calculation, so uncertainty removed)
