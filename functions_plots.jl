@@ -677,6 +677,98 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
 end
 
 """
+    shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
+
+Create heatmap plot of Shapley sensitivity effects grouped by reactor scale.
+
+Shapley effects differ from classical Sobol indices:
+- Only ONE effect per parameter (no S/ST distinction)
+- Properly accounts for parameter correlations (WACC × Construction Time)
+- Effects sum to 1.0 (efficiency property)
+
+# Arguments
+- shapley_results: DataFrame with columns [var, reactor1, reactor2, ...]
+- title: Plot title
+- pjs: Vector of project structs for grouping by scale
+
+# Returns
+- Makie Figure with heatmaps grouped by scale (Micro/SMR/Large)
+"""
+function shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
+
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => String[], "SMR" => String[], "Large" => String[])
+
+    for pj in pjs
+        if haskey(scale_groups, pj.scale)
+            push!(scale_groups[pj.scale], pj.name)
+        end
+    end
+
+    # Extract variable names (should be: wacc, construction_time, loadfactor, investment)
+    xticks = shapley_results.var
+
+    # Create figure with 3 scale groups side by side
+    # Single row (unlike Sobol which has S and ST)
+    fig = Figure(size = (1800, 400))
+    scale_order = ["Micro", "SMR", "Large"]
+    colors_map = Dict("Micro" => :reds, "SMR" => :blues, "Large" => :greens)
+
+    for (col_idx, scale) in enumerate(scale_order)
+        reactors = scale_groups[scale]
+
+        if isempty(reactors)
+            continue
+        end
+
+        # Filter columns for this scale
+        available_reactors = filter(r -> r in names(shapley_results), reactors)
+
+        if isempty(available_reactors)
+            continue
+        end
+
+        # Extract data for this scale (only Shapley effects, no S/ST split)
+        data_shapley = Matrix(shapley_results[:, available_reactors])
+
+        yticks_scale = available_reactors
+
+        # Create nested GridLayout for this scale group
+        gl = fig[1, col_idx] = GridLayout()
+
+        # Shapley effects heatmap
+        ax_shapley = Axis(gl[1, 1],
+                          xticks = (1:length(xticks), xticks),
+                          yticks = (1:length(yticks_scale), yticks_scale),
+                          title = "$scale - Shapley Effects")
+        ax_shapley.xticklabelrotation = π / 3
+        ax_shapley.xticklabelalign = (:right, :center)
+        ax_shapley.yticklabelsize = 8  # Smaller labels for readability
+
+        hmap_shapley = heatmap!(ax_shapley, data_shapley,
+                                colormap = colors_map[scale],
+                                colorrange = (0, 1))
+
+        # Add text labels with values
+        for i in 1:length(xticks), j in 1:length(yticks_scale)
+            txtcolor = data_shapley[i, j] > 0.5 ? :white : :black
+            text!(ax_shapley, "$(round(data_shapley[i,j], digits = 2))",
+                  position = (i, j),
+                  color = txtcolor, fontsize = 10, align = (:center, :center))
+        end
+
+        # Add colorbar inside the GridLayout
+        Colorbar(gl[1, 2], hmap_shapley, width = 12)
+        colsize!(gl, 2, Auto(12))  # Keep colorbar slim
+    end
+
+    # Overall title
+    Label(fig[0, :], title, fontsize = 20, font = "Noto Sans Bold", color = (:black, 0.25))
+
+    return fig
+end
+
+"""
     investment_plot_by_scale(pjs::Vector, scaling_plot::Vector)
 
 Create investment comparison plot grouped by reactor scale (Micro/SMR/Large).
