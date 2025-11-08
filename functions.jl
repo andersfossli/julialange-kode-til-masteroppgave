@@ -786,7 +786,7 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
         combined[:loadfactor] = rand_vars_S_fixed[:loadfactor][1:1, :]  # Fixed value (first row)
     else
         lf_mode = pj.loadfactor[1] + 0.6 * (pj.loadfactor[2] - pj.loadfactor[1])
-        lf_dist = TriangularDist(pj.loadfactor[1], lf_mode, pj.loadfactor[2])
+        lf_dist = TriangularDist(pj.loadfactor[1], pj.loadfactor[2], lf_mode)  # min, max, mode
         # Get total_time from electricity_price array
         total_time = haskey(rand_vars_S_fixed, :electricity_price) ? size(rand_vars_S_fixed[:electricity_price], 2) : 67
         combined[:loadfactor] = rand(lf_dist, 1, total_time)
