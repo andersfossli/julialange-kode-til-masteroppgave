@@ -15,6 +15,8 @@ include("data.jl")
 
 # Test parameters
 n_test = 500
+n_outer = 50  # Define early so we can use it in print
+n_inner = 100
 wacc = [0.04, 0.10]
 ct_range = [3, 7]
 scaling = [0.20, 0.75]
@@ -32,7 +34,7 @@ electricity_price_mean = mean([52.2, 95.8])
 
 println(io, "\nTest Project: $(test_project.name)")
 println(io, "  Capacity: $(test_project.plant_capacity) MWe")
-println(io, "  Parameters: n_outer=30, n_inner=100, n_test=$n_test")
+println(io, "  Parameters: n_outer=$n_outer, n_inner=$n_inner, n_test=$n_test")
 
 # Seed and generate A/B samples
 using Random
@@ -56,9 +58,7 @@ println(io, "="^80)
 println(io, "  NPV:  $(round(total_var_npv, sigdigits=6))")
 println(io, "  LCOE: $(round(total_var_lcoe, sigdigits=6))")
 
-# Generate outer base
-n_outer = 50  # Increased from 30 to reduce V(∅) estimation noise
-n_inner = 100
+# Generate outer base (n_outer and n_inner defined at top of file)
 Random.seed!(12345)
 outer_base = []
 for k in 1:n_outer
