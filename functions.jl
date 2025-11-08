@@ -1204,6 +1204,46 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
 
     @info "Total variance - NPV: $(round(total_var_npv, sigdigits=4)), LCOE: $(round(total_var_lcoe, sigdigits=4))"
 
+    # ═══════════════════════════════════════════════════════════════
+    # FIX #2: Generate shared outer design (same X_S^(k) for all coalitions)
+    # ═══════════════════════════════════════════════════════════════
+    @info "Generating shared outer design (n_outer=$n_outer samples) for all coalitions"
+    outer_base = []
+    for k in 1:n_outer
+        # Generate one realization of all 4 parameters
+        sample = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
+                              construction_time_range=construction_time_range)
+        push!(outer_base, sample)
+    end
+    @info "Outer design generated: $(length(outer_base)) realizations"
+
+    # ═══════════════════════════════════════════════════════════════
+    # FIX #1: Compute normalization from same engine (V_full - V_empty)
+    # ═══════════════════════════════════════════════════════════════
+    @info "Computing V(∅) and V(all) for normalization (using outer_base)"
+
+    coalition_id_empty = hash(Symbol[])
+    V_empty_npv, V_empty_lcoe = estimate_conditional_variance_V_S(
+        pj, Symbol[], outer_base, n_inner,
+        opt_scaling, wacc, electricity_price_mean,
+        construction_time_range, coalition_id_empty
+    )
+
+    coalition_id_full = hash([:wacc, :construction_time, :loadfactor, :investment])
+    V_full_npv, V_full_lcoe = estimate_conditional_variance_V_S(
+        pj, [:wacc, :construction_time, :loadfactor, :investment],
+        outer_base, n_inner,
+        opt_scaling, wacc, electricity_price_mean,
+        construction_time_range, coalition_id_full
+    )
+
+    # Use V(full) - V(empty) as normalization (not total_var from A/B)
+    norm_npv = max(V_full_npv - V_empty_npv, eps())
+    norm_lcoe = max(V_full_lcoe - V_empty_lcoe, eps())
+
+    @info "Normalization: V(full)-V(∅) = NPV: $(round(norm_npv, sigdigits=4)), LCOE: $(round(norm_lcoe, sigdigits=4))"
+    @info "For comparison, A/B total_var = NPV: $(round(total_var_npv, sigdigits=4)), LCOE: $(round(total_var_lcoe, sigdigits=4))"
+
     # Initialize Shapley effects
     sh_npv = Dict{Symbol, Float64}()
     sh_lcoe = Dict{Symbol, Float64}()
@@ -1227,19 +1267,21 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
 
                 @info "  Coalition S=$S (size $subset_size), weight=$(round(w, digits=4))"
 
-                # Estimate V(S) = Var(E[Y | X_S])
+                # FIX #2 & #3: Use shared outer_base and deterministic coalition_id
+                coalition_id_S = hash(collect(S))
                 V_S_npv, V_S_lcoe = estimate_conditional_variance_V_S(
-                    pj, collect(S), n_outer, n_inner,
+                    pj, collect(S), outer_base, n_inner,
                     opt_scaling, wacc, electricity_price_mean,
-                    construction_time_range, rand_vars_A
+                    construction_time_range, coalition_id_S
                 )
 
                 # Estimate V(S ∪ {i}) = Var(E[Y | X_S∪{i}])
                 S_union_i = vcat(collect(S), [param_i])
+                coalition_id_union = hash(S_union_i)
                 V_S_union_i_npv, V_S_union_i_lcoe = estimate_conditional_variance_V_S(
-                    pj, S_union_i, n_outer, n_inner,
+                    pj, S_union_i, outer_base, n_inner,
                     opt_scaling, wacc, electricity_price_mean,
-                    construction_time_range, rand_vars_A
+                    construction_time_range, coalition_id_union
                 )
 
                 # Marginal contribution: ΔV_i(S) = V(S ∪ {i}) - V(S)
@@ -1254,9 +1296,9 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
             end
         end
 
-        # Normalize by total variance to get proportion
-        sh_npv[param_i] = shapley_npv / total_var_npv
-        sh_lcoe[param_i] = shapley_lcoe / total_var_lcoe
+        # FIX #1: Normalize by V(full) - V(∅) from same engine
+        sh_npv[param_i] = shapley_npv / norm_npv
+        sh_lcoe[param_i] = shapley_lcoe / norm_lcoe
 
         # Apply correction for numerical noise
         sh_npv[param_i] = si_correct(sh_npv[param_i])
@@ -1286,31 +1328,21 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     end
 
     # ═══════════════════════════════════════════════════════════════
-    # VALIDATION DIAGNOSTICS
+    # VALIDATION DIAGNOSTICS (reusing V_empty and V_full from normalization)
     # ═══════════════════════════════════════════════════════════════
     println("\n" * "="^80)
     println("SHAPLEY VALIDATION DIAGNOSTICS")
     println("="^80)
 
-    # Test 1: V(∅) should be ≈ 0
+    # Test 1: V(∅) should be ≈ 0 (already computed for normalization)
     println("\nTest 1: Empty coalition V(∅)")
-    V_empty_npv, V_empty_lcoe = estimate_conditional_variance_V_S(
-        pj, Symbol[], n_outer, n_inner,
-        opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, rand_vars_A
-    )
     println("  V(∅) NPV:  $(V_empty_npv) (should be ≈ 0)")
     println("  V(∅) LCOE: $(V_empty_lcoe) (should be ≈ 0)")
     println("  Ratio to total - NPV:  $(round(V_empty_npv / total_var_npv, digits=4)) (should be < 0.01)")
     println("  Ratio to total - LCOE: $(round(V_empty_lcoe / total_var_lcoe, digits=4)) (should be < 0.01)")
 
-    # Test 2: V(all) should ≈ total variance
+    # Test 2: V(all) should ≈ total variance (already computed for normalization)
     println("\nTest 2: Full coalition V({WACC, CT, LF, Inv})")
-    V_full_npv, V_full_lcoe = estimate_conditional_variance_V_S(
-        pj, [:wacc, :construction_time, :loadfactor, :investment], n_outer, n_inner,
-        opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, rand_vars_A
-    )
     println("  V(all) NPV:  $(V_full_npv)")
     println("  Total var NPV: $(total_var_npv)")
     println("  Ratio: $(round(V_full_npv / total_var_npv, digits=4)) (should be ≈ 1.0)")
@@ -1321,10 +1353,11 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     # Test 3: Individual parameter effects
     println("\nTest 3: Individual parameter conditional variances")
     for param in [:wacc, :construction_time, :loadfactor, :investment]
+        coalition_id_param = hash([param])
         V_param_npv, V_param_lcoe = estimate_conditional_variance_V_S(
-            pj, [param], n_outer, n_inner,
+            pj, [param], outer_base, n_inner,
             opt_scaling, wacc, electricity_price_mean,
-            construction_time_range, rand_vars_A
+            construction_time_range, coalition_id_param
         )
         println("  V({$param}) NPV:  $(V_param_npv) ($(round(100*V_param_npv/total_var_npv, digits=1))%)")
         println("  V({$param}) LCOE: $(V_param_lcoe) ($(round(100*V_param_lcoe/total_var_lcoe, digits=1))%)")
@@ -1332,15 +1365,17 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
 
     # Test 4: Monotonicity check for WACC
     println("\nTest 4: Monotonicity check (V should increase as S grows)")
+    coalition_id_wacc = hash([:wacc])
     V_wacc_npv, V_wacc_lcoe = estimate_conditional_variance_V_S(
-        pj, [:wacc], n_outer, n_inner,
+        pj, [:wacc], outer_base, n_inner,
         opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, rand_vars_A
+        construction_time_range, coalition_id_wacc
     )
+    coalition_id_wacc_ct = hash([:wacc, :construction_time])
     V_wacc_ct_npv, V_wacc_ct_lcoe = estimate_conditional_variance_V_S(
-        pj, [:wacc, :construction_time], n_outer, n_inner,
+        pj, [:wacc, :construction_time], outer_base, n_inner,
         opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, rand_vars_A
+        construction_time_range, coalition_id_wacc_ct
     )
     println("  V({WACC}) LCOE: $(V_wacc_lcoe)")
     println("  V({WACC,CT}) LCOE: $(V_wacc_ct_lcoe)")
