@@ -671,41 +671,232 @@ function shapley_weight(subset_size::Int, total_params::Int)
 end
 
 """
-    create_conditional_sample(base_A, base_B, fixed_params::Vector{Symbol})
+    generate_combined_sample_one_realization(param_set_S, params_not_in_S, k, j,
+                                            rand_vars_S_fixed, ...)
 
-Create a conditional sample where specified parameters are fixed from base_B, others from base_A.
+Combine:
+- Fixed values from S (the k-th outer loop realization)
+- New random values for ~S (the j-th inner loop realization)
 
-This is used for computing conditional variances in Shapley sensitivity analysis.
-
-# Arguments
-- `base_A`: Named tuple of random variables (reference sample)
-- `base_B`: Named tuple of random variables (alternative sample)
-- `fixed_params::Vector{Symbol}`: Parameters to fix from base_B
-
-# Returns
-- Named tuple with conditional sample (fixed parameters from B, rest from A)
+Returns: Named tuple with 1 sample (single realization)
 """
-function create_conditional_sample(base_A, base_B, fixed_params::Vector{Symbol})
-    # Start with all parameters from A
-    sample = Dict{Symbol, Any}(
-        :wacc => base_A.wacc,
-        :electricity_price => base_A.electricity_price,
-        :loadfactor => base_A.loadfactor,
-        :investment => base_A.investment,
-        :construction_time => base_A.construction_time
-    )
+function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
+                                                  params_not_in_S::Vector{Symbol},
+                                                  k::Int, j::Int,
+                                                  rand_vars_S_fixed::Dict,
+                                                  opt_scaling::String, wacc::Vector,
+                                                  electricity_price_mean::Float64, pj::project,
+                                                  construction_time_range::Union{Nothing,Vector})
 
-    # Replace fixed parameters with values from B
-    for param in fixed_params
-        sample[param] = getfield(base_B, param)
+    # Generate parameters NOT in S
+    # CRITICAL: If both WACC and CT are NOT in S, they must be generated with copula
+    # If only one is in ~S, generate independently
+
+    needs_copula = (:wacc in params_not_in_S) && (:construction_time in params_not_in_S)
+
+    if needs_copula
+        # Generate correlated pair
+        temp_rand_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
+                                      construction_time_range=construction_time_range)
+    else
+        # Generate independently for parameters in ~S
+        temp_rand_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
+                                      construction_time_range=construction_time_range)
     end
 
-    # Return as named tuple
-    return (wacc = sample[:wacc],
-            electricity_price = sample[:electricity_price],
-            loadfactor = sample[:loadfactor],
-            investment = sample[:investment],
-            construction_time = sample[:construction_time])
+    # Build combined sample: Use fixed from S, varying from ~S
+    total_time = size(temp_rand_vars.loadfactor, 2)
+
+    combined = Dict{Symbol, Any}()
+
+    # WACC
+    if :wacc in param_set_S
+        combined[:wacc] = [rand_vars_S_fixed[:wacc][j]]
+    else
+        combined[:wacc] = temp_rand_vars.wacc
+    end
+
+    # Construction time
+    if :construction_time in param_set_S
+        combined[:construction_time] = [rand_vars_S_fixed[:construction_time][j]]
+    else
+        combined[:construction_time] = temp_rand_vars.construction_time
+    end
+
+    # Load factor
+    if :loadfactor in param_set_S
+        combined[:loadfactor] = rand_vars_S_fixed[:loadfactor][j:j, :]
+    else
+        combined[:loadfactor] = temp_rand_vars.loadfactor
+    end
+
+    # Investment
+    if :investment in param_set_S
+        combined[:investment] = [rand_vars_S_fixed[:investment][j]]
+    else
+        combined[:investment] = temp_rand_vars.investment
+    end
+
+    # Electricity price (always varying, not a sensitivity parameter)
+    combined[:electricity_price] = temp_rand_vars.electricity_price
+
+    return (wacc = combined[:wacc],
+            construction_time = combined[:construction_time],
+            loadfactor = combined[:loadfactor],
+            investment = combined[:investment],
+            electricity_price = combined[:electricity_price])
+end
+
+"""
+    generate_fixed_realization_for_S(param_set_S, params_not_in_S, n_inner, ...)
+
+Generate parameters in S as FIXED values (repeated n_inner times) and
+parameters NOT in S as VARYING values.
+
+Returns: Named tuple with n_inner samples where S parameters are constant, ~S vary
+"""
+function generate_fixed_realization_for_S(param_set_S::Vector{Symbol},
+                                         params_not_in_S::Vector{Symbol},
+                                         n_inner::Int,
+                                         opt_scaling::String, wacc::Vector,
+                                         electricity_price_mean::Float64, pj::project,
+                                         construction_time_range::Union{Nothing,Vector})
+
+    # Generate ONE sample to extract values for S
+    temp_sample = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
+                                construction_time_range=construction_time_range)
+
+    # Initialize output with correct dimensions
+    total_time = size(temp_sample.loadfactor, 2)
+
+    result = Dict{Symbol, Any}()
+
+    # For parameters in S: repeat the ONE value n_inner times (FIXED)
+    if :wacc in param_set_S
+        result[:wacc] = fill(temp_sample.wacc[1], n_inner)
+    end
+
+    if :construction_time in param_set_S
+        result[:construction_time] = fill(temp_sample.construction_time[1], n_inner)
+    end
+
+    if :loadfactor in param_set_S
+        # Take first row, repeat it n_inner times
+        lf_fixed = repeat(temp_sample.loadfactor[1:1, :], n_inner, 1)
+        result[:loadfactor] = lf_fixed
+    end
+
+    if :investment in param_set_S
+        result[:investment] = fill(temp_sample.investment[1], n_inner)
+    end
+
+    # Electricity price (always generated, not in param_names_all but needed)
+    result[:electricity_price] = temp_sample.electricity_price[1:1, :]  # Will be expanded
+
+    return result
+end
+
+"""
+    estimate_conditional_variance_V_S(pj::project, param_set_S::Vector{Symbol},
+                                      n_outer::Int, n_inner::Int,
+                                      opt_scaling::String, wacc::Vector,
+                                      electricity_price_mean::Float64,
+                                      construction_time_range::Union{Nothing,Vector},
+                                      base_rand_vars)
+
+Estimate V(S) = Var(E[Y | X_S]) using replicated nested sampling.
+
+This is the core computation for Shapley sensitivity indices with correlated inputs.
+
+# Algorithm
+For k = 1 to n_outer:
+    1. Fix parameters in S at one realization (X_S^(k))
+    2. For j = 1 to n_inner:
+        - Generate X_~S^(j) (parameters NOT in S)
+        - Compute Y^(k,j) = model(X_S^(k), X_~S^(j))
+    3. Compute conditional mean: E[Y | X_S^(k)] = mean(Y^(k,j) over j)
+    4. Store this conditional mean
+Return: Var(conditional means over k)
+
+# Arguments
+- pj: Project struct
+- param_set_S: Vector of parameter names in subset S (e.g., [:wacc, :construction_time])
+- n_outer: Number of X_S realizations (controls accuracy, recommend 50-100)
+- n_inner: Number of X_~S samples per X_S value (recommend 100-200)
+- opt_scaling: Scaling method
+- wacc: WACC range
+- electricity_price_mean: Fixed electricity price
+- construction_time_range: CT range for copula
+- base_rand_vars: Base sample to extract distributional parameters
+
+# Returns
+- (V_S_npv::Float64, V_S_lcoe::Float64): Conditional variances for NPV and LCOE
+
+# Computational Cost
+- Total evaluations: n_outer × n_inner (e.g., 50 × 100 = 5000 per coalition)
+"""
+function estimate_conditional_variance_V_S(pj::project, param_set_S::Vector{Symbol},
+                                          n_outer::Int, n_inner::Int,
+                                          opt_scaling::String, wacc::Vector,
+                                          electricity_price_mean::Float64,
+                                          construction_time_range::Union{Nothing,Vector},
+                                          base_rand_vars)
+
+    param_names_all = [:wacc, :construction_time, :loadfactor, :investment]
+    params_not_in_S = [p for p in param_names_all if !(p in param_set_S)]
+
+    @info "  Estimating V(S) for S=$param_set_S ($(length(param_set_S)) params fixed, $(length(params_not_in_S)) varying)"
+    @info "    n_outer=$n_outer, n_inner=$n_inner → $(n_outer * n_inner) model evaluations"
+
+    # Storage for conditional expectations
+    conditional_means_npv = Float64[]
+    conditional_means_lcoe = Float64[]
+
+    # OUTER LOOP: Different realizations of X_S
+    for k in 1:n_outer
+        # Generate ONE realization of parameters in S
+        rand_vars_S_fixed = generate_fixed_realization_for_S(
+            param_set_S, params_not_in_S, n_inner,
+            opt_scaling, wacc, electricity_price_mean, pj,
+            construction_time_range
+        )
+
+        # INNER LOOP: Multiple realizations of X_~S with X_S held fixed
+        Y_inner_npv = Float64[]
+        Y_inner_lcoe = Float64[]
+
+        for j in 1:n_inner
+            # Generate ONE realization of parameters NOT in S
+            # Combine with fixed X_S values
+            rand_vars_combined = generate_combined_sample_one_realization(
+                param_set_S, params_not_in_S, k, j,
+                rand_vars_S_fixed, opt_scaling, wacc,
+                electricity_price_mean, pj, construction_time_range
+            )
+
+            # Run model
+            results = investment_simulation(pj, rand_vars_combined)
+
+            # Extract single realization (since we're doing one at a time)
+            push!(Y_inner_npv, results.npv[1])
+            push!(Y_inner_lcoe, results.lcoe[1])
+        end
+
+        # Conditional expectation E[Y | X_S = X_S^(k)]
+        E_Y_given_S_k_npv = mean(Y_inner_npv)
+        E_Y_given_S_k_lcoe = mean(Y_inner_lcoe)
+
+        push!(conditional_means_npv, E_Y_given_S_k_npv)
+        push!(conditional_means_lcoe, E_Y_given_S_k_lcoe)
+    end
+
+    # V(S) = Var(E[Y | X_S])
+    V_S_npv = var(conditional_means_npv, corrected=false)
+    V_S_lcoe = var(conditional_means_lcoe, corrected=false)
+
+    @info "    V(S) computed: NPV=$(round(V_S_npv, sigdigits=4)), LCOE=$(round(V_S_lcoe, sigdigits=4))"
+
+    return V_S_npv, V_S_lcoe
 end
 
 """
@@ -762,14 +953,24 @@ println("Shapley effects for LCOE:", sh_results.sh_lcoe)
 function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
                                    construction_time_range::Union{Nothing,Vector}=nothing)
 
-    @info "Computing Shapley sensitivity indices (handles correlated inputs)"
+    @info "Computing Shapley sensitivity indices with CORRECTED nested sampling (handles correlated inputs)"
 
     # Define parameter names
     param_names = [:wacc, :construction_time, :loadfactor, :investment]
     d = length(param_names)
 
+    # Computational parameters for nested sampling
+    # Tradeoff: accuracy vs computational cost
+    # For testing: n_outer=20, n_inner=50 → 1000 evals/coalition
+    # For production: n_outer=50, n_inner=100 → 5000 evals/coalition
+    n_outer = 30   # Number of X_S realizations (outer loop)
+    n_inner = 100  # Number of X_~S samples per X_S (inner loop)
+
+    @info "Nested sampling parameters: n_outer=$n_outer, n_inner=$n_inner"
+    @info "Cost per coalition: $(n_outer * n_inner) model evaluations"
+
     # Generate base samples A and B (independent draws with correlation structure preserved)
-    @info "Generating base samples A and B"
+    @info "Generating base samples A and B for total variance estimation"
     rand_vars_A = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
                                 construction_time_range=construction_time_range)
     rand_vars_B = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
@@ -809,28 +1010,32 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
                 # Compute Shapley weight
                 w = shapley_weight(subset_size, d)
 
-                # Create conditional samples
-                # S: parameters in S fixed from B, rest from A
-                sample_S = create_conditional_sample(rand_vars_A, rand_vars_B, collect(S))
+                @info "  Coalition S=$S (size $subset_size), weight=$(round(w, digits=4))"
 
-                # S ∪ {i}: parameters in S and i fixed from B, rest from A
+                # Estimate V(S) = Var(E[Y | X_S])
+                V_S_npv, V_S_lcoe = estimate_conditional_variance_V_S(
+                    pj, collect(S), n_outer, n_inner,
+                    opt_scaling, wacc, electricity_price_mean,
+                    construction_time_range, rand_vars_A
+                )
+
+                # Estimate V(S ∪ {i}) = Var(E[Y | X_S∪{i}])
                 S_union_i = vcat(collect(S), [param_i])
-                sample_S_union_i = create_conditional_sample(rand_vars_A, rand_vars_B, S_union_i)
+                V_S_union_i_npv, V_S_union_i_lcoe = estimate_conditional_variance_V_S(
+                    pj, S_union_i, n_outer, n_inner,
+                    opt_scaling, wacc, electricity_price_mean,
+                    construction_time_range, rand_vars_A
+                )
 
-                # Run simulations for conditional samples
-                @info "  Subset $S (size $subset_size): weight = $(round(w, digits=4))"
-                res_S = investment_simulation(pj, sample_S)
-                res_S_union_i = investment_simulation(pj, sample_S_union_i)
+                # Marginal contribution: ΔV_i(S) = V(S ∪ {i}) - V(S)
+                delta_V_npv = V_S_union_i_npv - V_S_npv
+                delta_V_lcoe = V_S_union_i_lcoe - V_S_lcoe
 
-                # Compute conditional variance contributions
-                # ΔV_i(S) = V(Y | X_S∪{i}) - V(Y | X_S)
-                # Using the variance of conditional means estimator
-                delta_var_npv = var(res_S_union_i.npv, corrected=false) - var(res_S.npv, corrected=false)
-                delta_var_lcoe = var(res_S_union_i.lcoe, corrected=false) - var(res_S.lcoe, corrected=false)
+                @info "    ΔV: NPV=$(round(delta_V_npv, sigdigits=4)), LCOE=$(round(delta_V_lcoe, sigdigits=4))"
 
-                # Add weighted contribution
-                shapley_npv += w * delta_var_npv
-                shapley_lcoe += w * delta_var_lcoe
+                # Weighted contribution to Shapley value
+                shapley_npv += w * delta_V_npv
+                shapley_lcoe += w * delta_V_lcoe
             end
         end
 
@@ -838,11 +1043,11 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
         sh_npv[param_i] = shapley_npv / total_var_npv
         sh_lcoe[param_i] = shapley_lcoe / total_var_lcoe
 
-        # Apply correction (ensure [0,1] range)
+        # Apply correction for numerical noise
         sh_npv[param_i] = si_correct(sh_npv[param_i])
         sh_lcoe[param_i] = si_correct(sh_lcoe[param_i])
 
-        @info "  Shapley effect ($param_i): NPV = $(round(sh_npv[param_i], digits=4)), LCOE = $(round(sh_lcoe[param_i], digits=4))"
+        @info "  ✓ Shapley effect ($param_i): NPV=$(round(sh_npv[param_i], digits=4)), LCOE=$(round(sh_lcoe[param_i], digits=4))"
     end
 
     # Convert to named tuples
