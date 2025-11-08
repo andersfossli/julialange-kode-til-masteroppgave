@@ -1,5 +1,5 @@
 ##### dependencies #####
-using Distributions, LinearAlgebra, Combinatorics
+using Distributions, LinearAlgebra, Combinatorics, Random
 
 ##### defining structs #####
 
@@ -873,87 +873,226 @@ function generate_fixed_realization_for_S(param_set_S::Vector{Symbol},
 end
 
 """
+    generate_combined_sample_from_outer_base(param_set_S, params_not_in_S, X_S_fixed, rng,
+                                            opt_scaling, wacc, electricity_price_mean, pj, construction_time_range)
+
+Generate one combined sample using:
+- Fixed values from X_S_fixed (pre-generated outer sample) for parameters in S
+- New random values for parameters in ~S, using seeded RNG for CRN
+
+This version uses Common Random Numbers (CRN) via the seeded rng parameter.
+"""
+function generate_combined_sample_from_outer_base(param_set_S::Vector{Symbol},
+                                                   params_not_in_S::Vector{Symbol},
+                                                   X_S_fixed,  # NamedTuple from outer_base
+                                                   rng::Random.AbstractRNG,
+                                                   opt_scaling::String, wacc::Vector,
+                                                   electricity_price_mean::Float64, pj::project,
+                                                   construction_time_range::Union{Nothing,Vector})
+
+    combined = Dict{Symbol, Any}()
+
+    # ==================================================================
+    # WACC and Construction Time: Handle copula dependencies with CRN
+    # ==================================================================
+
+    # CASE 1: Both WACC and CT in S (both fixed)
+    if (:wacc in param_set_S) && (:construction_time in param_set_S)
+        combined[:wacc] = [X_S_fixed.wacc[1]]
+        combined[:construction_time] = [X_S_fixed.construction_time[1]]
+
+    # CASE 2: Both WACC and CT in ~S (both vary, use copula with seeded RNG)
+    elseif (:wacc in params_not_in_S) && (:construction_time in params_not_in_S)
+        # Generate correlated pair using seeded RNG
+        Σ = [1.0  0.4; 0.4  1.0]
+        L = cholesky(Σ).L
+        Z = randn(rng, 2)' * L'  # Use seeded RNG
+        U = cdf.(Normal(0, 1), Z)
+
+        wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))
+        ct_dist = TriangularDist(construction_time_range[1], construction_time_range[2], mean(construction_time_range))
+
+        wacc_sample = [quantile(wacc_dist, U[1])]
+        ct_sample = quantile(ct_dist, U[2])
+
+        combined[:wacc] = wacc_sample
+        combined[:construction_time] = [round(Int, ct_sample)]
+
+    # CASE 3: WACC fixed, CT varies - conditional sampling with seeded RNG
+    elseif (:wacc in param_set_S) && (:construction_time in params_not_in_S)
+        fixed_wacc = X_S_fixed.wacc[1]
+
+        wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))
+        u_wacc = cdf(wacc_dist, fixed_wacc)
+        z_wacc = quantile(Normal(0,1), u_wacc)
+
+        ρ = 0.4
+        z_ct_conditional = ρ * z_wacc + sqrt(1 - ρ^2) * randn(rng)  # Use seeded RNG
+        u_ct = cdf(Normal(0,1), z_ct_conditional)
+
+        ct_dist = TriangularDist(construction_time_range[1], construction_time_range[2], mean(construction_time_range))
+        ct_sample = quantile(ct_dist, u_ct)
+
+        combined[:wacc] = [fixed_wacc]
+        combined[:construction_time] = [round(Int, ct_sample)]
+
+    # CASE 4: CT fixed, WACC varies - conditional sampling with seeded RNG
+    elseif (:construction_time in param_set_S) && (:wacc in params_not_in_S)
+        fixed_ct = Float64(X_S_fixed.construction_time[1])
+
+        ct_dist = TriangularDist(construction_time_range[1], construction_time_range[2], mean(construction_time_range))
+        u_ct = cdf(ct_dist, fixed_ct)
+        z_ct = quantile(Normal(0,1), u_ct)
+
+        ρ = 0.4
+        z_wacc_conditional = ρ * z_ct + sqrt(1 - ρ^2) * randn(rng)  # Use seeded RNG
+        u_wacc = cdf(Normal(0,1), z_wacc_conditional)
+
+        wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))
+        wacc_sample = quantile(wacc_dist, u_wacc)
+
+        combined[:wacc] = [wacc_sample]
+        combined[:construction_time] = [round(Int, fixed_ct)]
+
+    # CASE 5: Fallback
+    else
+        if :wacc in param_set_S
+            combined[:wacc] = [X_S_fixed.wacc[1]]
+        else
+            wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))
+            combined[:wacc] = [rand(rng, wacc_dist)]  # Use seeded RNG
+        end
+
+        if :construction_time in param_set_S
+            combined[:construction_time] = [X_S_fixed.construction_time[1]]
+        else
+            ct_dist = TriangularDist(construction_time_range[1], construction_time_range[2], mean(construction_time_range))
+            combined[:construction_time] = [round(Int, rand(rng, ct_dist))]  # Use seeded RNG
+        end
+    end
+
+    # ==================================================================
+    # Load Factor (always independent, use seeded RNG)
+    # ==================================================================
+    if :loadfactor in param_set_S
+        combined[:loadfactor] = X_S_fixed.loadfactor[1:1, :]
+    else
+        lf_mode = pj.loadfactor[1] + 0.6 * (pj.loadfactor[2] - pj.loadfactor[1])
+        lf_dist = TriangularDist(pj.loadfactor[1], pj.loadfactor[2], lf_mode)
+        total_time = size(X_S_fixed.loadfactor, 2)
+        combined[:loadfactor] = rand(rng, lf_dist, 1, total_time)  # Use seeded RNG
+    end
+
+    # ==================================================================
+    # Investment (use seeded RNG)
+    # ==================================================================
+    if :investment in param_set_S
+        combined[:investment] = [X_S_fixed.investment[1]]
+    else
+        # Use deterministic scaling calculation (doesn't depend on WACC/CT for rothwell)
+        # But for randomness, use seeded RNG
+        temp_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
+                                 construction_time_range=construction_time_range)
+        combined[:investment] = temp_vars.investment
+    end
+
+    # ==================================================================
+    # Electricity price (fixed at mean)
+    # ==================================================================
+    total_time = size(X_S_fixed.loadfactor, 2)
+    combined[:electricity_price] = fill(electricity_price_mean, 1, total_time)
+
+    return (wacc = combined[:wacc],
+            construction_time = combined[:construction_time],
+            loadfactor = combined[:loadfactor],
+            investment = combined[:investment],
+            electricity_price = combined[:electricity_price])
+end
+
+"""
     estimate_conditional_variance_V_S(pj::project, param_set_S::Vector{Symbol},
-                                      n_outer::Int, n_inner::Int,
+                                      outer_base::Vector,
+                                      n_inner::Int,
                                       opt_scaling::String, wacc::Vector,
                                       electricity_price_mean::Float64,
                                       construction_time_range::Union{Nothing,Vector},
-                                      base_rand_vars)
+                                      coalition_id::UInt)
 
-Estimate V(S) = Var(E[Y | X_S]) using replicated nested sampling.
+Estimate V(S) = Var(E[Y | X_S]) using replicated nested sampling with SHARED outer design and CRN.
 
-This is the core computation for Shapley sensitivity indices with correlated inputs.
+CRITICAL FIXES:
+- Uses pre-generated outer_base (same for all coalitions) to reduce variance
+- Applies Common Random Numbers (CRN) for inner loops to reduce noise in ΔV = V(S∪{i}) - V(S)
+- Each inner loop uses deterministic seed based on (coalition_id, k) for reproducibility
 
 # Algorithm
 For k = 1 to n_outer:
-    1. Fix parameters in S at one realization (X_S^(k))
-    2. For j = 1 to n_inner:
-        - Generate X_~S^(j) (parameters NOT in S)
+    1. Extract X_S^(k) from outer_base[k] (pre-generated)
+    2. Initialize RNG with seed = hash((coalition_id, k)) [CRN]
+    3. For j = 1 to n_inner:
+        - Generate X_~S^(j) using seeded RNG
         - Compute Y^(k,j) = model(X_S^(k), X_~S^(j))
-    3. Compute conditional mean: E[Y | X_S^(k)] = mean(Y^(k,j) over j)
-    4. Store this conditional mean
+    4. Compute conditional mean: E[Y | X_S^(k)] = mean(Y^(k,j) over j)
 Return: Var(conditional means over k)
 
 # Arguments
 - pj: Project struct
-- param_set_S: Vector of parameter names in subset S (e.g., [:wacc, :construction_time])
-- n_outer: Number of X_S realizations (controls accuracy, recommend 50-100)
-- n_inner: Number of X_~S samples per X_S value (recommend 100-200)
+- param_set_S: Parameters in subset S
+- outer_base: Pre-generated full samples [Vector of NamedTuples], length n_outer
+- n_inner: Number of inner samples per outer iteration
 - opt_scaling: Scaling method
 - wacc: WACC range
 - electricity_price_mean: Fixed electricity price
-- construction_time_range: CT range for copula
-- base_rand_vars: Base sample to extract distributional parameters
+- construction_time_range: CT range
+- coalition_id: Unique identifier for this coalition (for CRN)
 
 # Returns
-- (V_S_npv::Float64, V_S_lcoe::Float64): Conditional variances for NPV and LCOE
-
-# Computational Cost
-- Total evaluations: n_outer × n_inner (e.g., 50 × 100 = 5000 per coalition)
+- (V_S_npv::Float64, V_S_lcoe::Float64)
 """
 function estimate_conditional_variance_V_S(pj::project, param_set_S::Vector{Symbol},
-                                          n_outer::Int, n_inner::Int,
+                                          outer_base::Vector,
+                                          n_inner::Int,
                                           opt_scaling::String, wacc::Vector,
                                           electricity_price_mean::Float64,
                                           construction_time_range::Union{Nothing,Vector},
-                                          base_rand_vars)
+                                          coalition_id::UInt)
 
     param_names_all = [:wacc, :construction_time, :loadfactor, :investment]
     params_not_in_S = [p for p in param_names_all if !(p in param_set_S)]
+    n_outer = length(outer_base)
 
     @info "  Estimating V(S) for S=$param_set_S ($(length(param_set_S)) params fixed, $(length(params_not_in_S)) varying)"
-    @info "    n_outer=$n_outer, n_inner=$n_inner → $(n_outer * n_inner) model evaluations"
+    @info "    n_outer=$n_outer (shared design), n_inner=$n_inner → $(n_outer * n_inner) model evaluations"
 
     # Storage for conditional expectations
     conditional_means_npv = Float64[]
     conditional_means_lcoe = Float64[]
 
-    # OUTER LOOP: Different realizations of X_S
+    # OUTER LOOP: Use pre-generated outer_base
     for k in 1:n_outer
-        # Generate ONE realization of parameters in S
-        rand_vars_S_fixed = generate_fixed_realization_for_S(
-            param_set_S, params_not_in_S, n_inner,
-            opt_scaling, wacc, electricity_price_mean, pj,
-            construction_time_range
-        )
+        # Extract fixed values for S from outer_base[k]
+        X_S_fixed = outer_base[k]
 
-        # INNER LOOP: Multiple realizations of X_~S with X_S held fixed
+        # Initialize RNG with deterministic seed for CRN
+        # Same seed for same (coalition, k) → inner loops aligned across V(S) and V(S∪{i})
+        rng_seed = hash((coalition_id, k))
+        rng = Random.MersenneTwister(rng_seed)
+
+        # INNER LOOP: Sample X_~S with seeded RNG
         Y_inner_npv = Float64[]
         Y_inner_lcoe = Float64[]
 
         for j in 1:n_inner
-            # Generate ONE realization of parameters NOT in S
-            # Combine with fixed X_S values
-            rand_vars_combined = generate_combined_sample_one_realization(
-                param_set_S, params_not_in_S, k, j,
-                rand_vars_S_fixed, opt_scaling, wacc,
-                electricity_price_mean, pj, construction_time_range
+            # Generate combined sample: fixed S from outer_base, varying ~S with seeded RNG
+            rand_vars_combined = generate_combined_sample_from_outer_base(
+                param_set_S, params_not_in_S, X_S_fixed, rng,
+                opt_scaling, wacc, electricity_price_mean, pj, construction_time_range
             )
 
             # Run model
             results = investment_simulation(pj, rand_vars_combined)
 
-            # Extract single realization (since we're doing one at a time)
+            # Extract single realization
             push!(Y_inner_npv, results.npv[1])
             push!(Y_inner_lcoe, results.lcoe[1])
         end
