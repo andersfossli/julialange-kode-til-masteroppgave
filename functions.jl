@@ -717,7 +717,7 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
         fixed_wacc = rand_vars_S_fixed[:wacc][1]
 
         # Convert fixed WACC to quantile
-        wacc_dist = TriangularDist(wacc[1], mean(wacc), wacc[2])
+        wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))  # min, max, mode
         u_wacc = cdf(wacc_dist, fixed_wacc)
 
         # Convert to standard normal space
@@ -732,8 +732,8 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
 
         # Back to CT space
         ct_dist = TriangularDist(construction_time_range[1],
-                                mean(construction_time_range),
-                                construction_time_range[2])
+                                construction_time_range[2],
+                                mean(construction_time_range))  # min, max, mode
         ct_sample = quantile(ct_dist, u_ct)
 
         combined[:wacc] = [fixed_wacc]
@@ -744,8 +744,8 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
         fixed_ct = Float64(rand_vars_S_fixed[:construction_time][1])
 
         ct_dist = TriangularDist(construction_time_range[1],
-                                mean(construction_time_range),
-                                construction_time_range[2])
+                                construction_time_range[2],
+                                mean(construction_time_range))  # min, max, mode
         u_ct = cdf(ct_dist, fixed_ct)
         z_ct = quantile(Normal(0,1), u_ct)
 
@@ -753,7 +753,7 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
         z_wacc_conditional = ρ * z_ct + sqrt(1 - ρ^2) * randn()
         u_wacc = cdf(Normal(0,1), z_wacc_conditional)
 
-        wacc_dist = TriangularDist(wacc[1], mean(wacc), wacc[2])
+        wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))  # min, max, mode
         wacc_sample = quantile(wacc_dist, u_wacc)
 
         combined[:wacc] = [wacc_sample]
@@ -765,7 +765,7 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
         if :wacc in param_set_S
             combined[:wacc] = [rand_vars_S_fixed[:wacc][1]]
         else
-            wacc_dist = TriangularDist(wacc[1], mean(wacc), wacc[2])
+            wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))  # min, max, mode
             combined[:wacc] = rand(wacc_dist, 1)
         end
 
@@ -773,8 +773,8 @@ function generate_combined_sample_one_realization(param_set_S::Vector{Symbol},
             combined[:construction_time] = [rand_vars_S_fixed[:construction_time][1]]
         else
             ct_dist = TriangularDist(construction_time_range[1],
-                                    mean(construction_time_range),
-                                    construction_time_range[2])
+                                    construction_time_range[2],
+                                    mean(construction_time_range))  # min, max, mode
             combined[:construction_time] = [round(Int, rand(ct_dist, 1)[1])]
         end
     end
