@@ -60,6 +60,16 @@ println("  LCOE: $(round(total_var_lcoe, sigdigits=6))")
 n_outer = 30
 n_inner = 100
 
+# Generate shared outer design (same X_S^(k) for all coalitions)
+println("\nGenerating shared outer design (n_outer=$n_outer samples)...")
+outer_base = []
+for k in 1:n_outer
+    sample = gen_rand_vars("rothwell", 1, wacc, electricity_price_mean, test_project;
+                          construction_time_range=ct_range)
+    push!(outer_base, sample)
+end
+println("Outer design generated: $(length(outer_base)) realizations")
+
 println("\n" * "="^80)
 println("CRITICAL DIAGNOSTICS - Run These to Find the Bug")
 println("="^80)
@@ -68,10 +78,11 @@ println("="^80)
 println("\n[Test 1] V(∅) - No parameters fixed")
 println("Expected: < 1% of total variance")
 println("Interpretation: If large, inner loop isn't varying parameters properly")
+coalition_id_empty = hash(Symbol[])
 V_empty_npv, V_empty_lcoe = estimate_conditional_variance_V_S(
-    test_project, Symbol[], n_outer, n_inner,
+    test_project, Symbol[], outer_base, n_inner,
     "rothwell", wacc, electricity_price_mean,
-    ct_range, rand_vars_A
+    ct_range, coalition_id_empty
 )
 println("  V(∅) NPV:  $(round(V_empty_npv, sigdigits=4))")
 println("  Total var NPV: $(round(total_var_npv, sigdigits=4))")
@@ -96,10 +107,11 @@ println("\n" * "-"^80)
 println("[Test 2] V({WACC, CT, LF, Inv}) - All parameters fixed")
 println("Expected: 90-110% of total variance")
 println("Interpretation: If too low, outer loop isn't fixing parameters properly")
+coalition_id_full = hash([:wacc, :construction_time, :loadfactor, :investment])
 V_all_npv, V_all_lcoe = estimate_conditional_variance_V_S(
     test_project, [:wacc, :construction_time, :loadfactor, :investment],
-    n_outer, n_inner, "rothwell", wacc, electricity_price_mean,
-    ct_range, rand_vars_A
+    outer_base, n_inner, "rothwell", wacc, electricity_price_mean,
+    ct_range, coalition_id_full
 )
 println("  V(all) NPV:  $(round(V_all_npv, sigdigits=4))")
 println("  Total var NPV: $(round(total_var_npv, sigdigits=4))")
@@ -135,10 +147,11 @@ V_individual_lcoe = Dict{Symbol, Float64}()
 
 for param in [:wacc, :construction_time, :loadfactor, :investment]
     println("\n  Computing V({$param})...")
+    coalition_id_param = hash([param])
     V_p_npv, V_p_lcoe = estimate_conditional_variance_V_S(
-        test_project, [param], n_outer, n_inner,
+        test_project, [param], outer_base, n_inner,
         "rothwell", wacc, electricity_price_mean,
-        ct_range, rand_vars_A
+        ct_range, coalition_id_param
     )
     V_individual_npv[param] = V_p_npv
     V_individual_lcoe[param] = V_p_lcoe
@@ -185,16 +198,18 @@ println("\n" * "-"^80)
 println("[Test 5] Monotonicity Check: V should increase with coalition size")
 println("Computing V({WACC}) and V({WACC, CT})...")
 
+coalition_id_wacc = hash([:wacc])
 V_wacc_npv, V_wacc_lcoe = estimate_conditional_variance_V_S(
-    test_project, [:wacc], n_outer, n_inner,
+    test_project, [:wacc], outer_base, n_inner,
     "rothwell", wacc, electricity_price_mean,
-    ct_range, rand_vars_A
+    ct_range, coalition_id_wacc
 )
 
+coalition_id_wacc_ct = hash([:wacc, :construction_time])
 V_wacc_ct_npv, V_wacc_ct_lcoe = estimate_conditional_variance_V_S(
-    test_project, [:wacc, :construction_time], n_outer, n_inner,
+    test_project, [:wacc, :construction_time], outer_base, n_inner,
     "rothwell", wacc, electricity_price_mean,
-    ct_range, rand_vars_A
+    ct_range, coalition_id_wacc_ct
 )
 
 println("\nNPV:")
