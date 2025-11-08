@@ -72,3 +72,53 @@ end
 #output
 CSV.write("$outputpath/si-npv_results-$opt_scaling.csv", si_npv_results);
 CSV.write("$outputpath/si-lcoe_results-$opt_scaling.csv", si_lcoe_results);
+
+##### Shapley sensitivity analysis #####
+
+# Initialize Shapley results variables
+shapley_npv_results = DataFrame();
+shapley_npv_results.var = ["wacc", "construction_time", "loadfactor", "investment"];
+shapley_lcoe_results = DataFrame();
+shapley_lcoe_results.var = ["wacc", "construction_time", "loadfactor", "investment"];
+
+@info("Starting Shapley sensitivity analysis for all reactors")
+@info("Expected runtime: ~5-6 hours (15 reactors × 20 min each)")
+
+# Run Shapley sensitivity analysis for all projects
+for p in eachindex(pjs)
+    @info("Running Shapley sensitivity for reactor $(p)/$(length(pjs)): $(pjs[p].name)")
+    # Get construction time range for this project's scale
+    construction_time_range = construction_time_ranges[pjs[p].scale]
+
+    # Run Shapley sensitivity analysis
+    shapley_results = shapley_sensitivity_index(
+        opt_scaling, n, wacc, electricity_price_mean, pjs[p];
+        construction_time_range=construction_time_range
+    )
+
+    # Extract Shapley effects (only one effect per parameter, unlike Sobol S/ST)
+    shapley_npv_results.res = [
+        shapley_results.sh_npv.wacc,
+        shapley_results.sh_npv.construction_time,
+        shapley_results.sh_npv.loadfactor,
+        shapley_results.sh_npv.investment
+    ]
+    rename!(shapley_npv_results, :res => pjs[p].name)
+
+    shapley_lcoe_results.res = [
+        shapley_results.sh_lcoe.wacc,
+        shapley_results.sh_lcoe.construction_time,
+        shapley_results.sh_lcoe.loadfactor,
+        shapley_results.sh_lcoe.investment
+    ]
+    rename!(shapley_lcoe_results, :res => pjs[p].name)
+
+    @info("Completed $(p)/$(length(pjs)) reactors")
+end
+
+# Output Shapley results
+CSV.write("$outputpath/shapley-npv_results-$opt_scaling.csv", shapley_npv_results);
+CSV.write("$outputpath/shapley-lcoe_results-$opt_scaling.csv", shapley_lcoe_results);
+
+@info("Shapley sensitivity analysis complete for all reactors!")
+@info("Results saved to shapley-npv_results-$opt_scaling.csv and shapley-lcoe_results-$opt_scaling.csv")
