@@ -39,6 +39,11 @@ println("\n" * "="^80)
 println("Step 1: Estimating Total Variance")
 println("="^80)
 
+# Seed global RNG for reproducible A/B samples
+using Random
+Random.seed!(54321)
+println("Global RNG seeded (54321) for reproducible A/B sample generation")
+
 rand_vars_A = gen_rand_vars("rothwell", n_test, wacc, electricity_price_mean, test_project;
                             construction_time_range=ct_range)
 rand_vars_B = gen_rand_vars("rothwell", n_test, wacc, electricity_price_mean, test_project;
@@ -60,8 +65,14 @@ println("  LCOE: $(round(total_var_lcoe, sigdigits=6))")
 n_outer = 30
 n_inner = 100
 
+# SEED GLOBAL RNG for reproducibility
+# This ensures outer_base is identical across runs
+using Random
+Random.seed!(12345)
+println("\n⚠️  Global RNG seeded (12345) for reproducible outer_base generation")
+
 # Generate shared outer design (same X_S^(k) for all coalitions)
-println("\nGenerating shared outer design (n_outer=$n_outer samples)...")
+println("Generating shared outer design (n_outer=$n_outer samples)...")
 outer_base = []
 for k in 1:n_outer
     sample = gen_rand_vars("rothwell", 1, wacc, electricity_price_mean, test_project;
