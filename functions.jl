@@ -305,9 +305,13 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
         # Round construction time to integer years
         rand_construction_time = round.(Int, rand_construction_time_float)
 
-        # Verify correlation achieved
-        actual_corr = cor(rand_wacc, rand_construction_time_float)
-        @info("Empirical correlation: $(round(actual_corr, digits=3))")
+        # Verify correlation achieved (only meaningful for n >= 2)
+        if n >= 2
+            actual_corr = cor(rand_wacc, rand_construction_time_float)
+            @info("Empirical correlation: $(round(actual_corr, digits=3))")
+        else
+            @info("Empirical correlation: N/A (n=1, correlation not defined)")
+        end
     else
         # Fallback: independent triangular sampling if no CT range
         wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))
