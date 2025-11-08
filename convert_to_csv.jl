@@ -109,6 +109,51 @@ function get_reference_values(reactor_type)
 end
 
 """
+    get_capacity_factor_range(reactor_type)
+
+Get reactor-type-specific capacity factor ranges based on WNA Global Nuclear Industry Performance data.
+Uses ±15% ranges from global averages for Monte Carlo simulation uncertainty.
+
+# Capacity Factor Mapping (uniform distribution sampling)
+- BWR:     [0.75, 0.95]  # 90% ±15%, capped at 95% (best performing LWR type)
+- PWR:     [0.65, 0.95]  # 80% ±15% (most common LWR type)
+- HTR:     [0.55, 0.85]  # 70% ±15% (gas-cooled reactor, limited operational experience)
+- HTGR:    [0.65, 0.95]  # 80% ±15% (using default - overlaps with HTR category)
+- HTR/GFR: [0.55, 0.85]  # 70% ±15% (gas-cooled fast reactor, no operational data)
+- SFR:     [0.55, 0.85]  # 70% ±15% (fast breeder, limited operational experience)
+- LFR:     [0.55, 0.85]  # 70% ±15% (fast breeder category, no operational data)
+- MSR:     [0.65, 0.95]  # 80% ±15% (default - no operational data)
+- MSFR:    [0.65, 0.95]  # 80% ±15% (default - no operational data)
+- MR:      [0.65, 0.95]  # 80% ±15% (default - no operational data)
+
+# Returns
+- Tuple (CF_min, CF_max) for uniform distribution sampling
+"""
+function get_capacity_factor_range(reactor_type)
+    # Reactor-type-specific capacity factor ranges from WNA data
+    cf_ranges = Dict(
+        "BWR"     => (0.75, 0.95),  # 90% ±15%, capped at 95%
+        "PWR"     => (0.65, 0.95),  # 80% ±15%
+        "HTR"     => (0.55, 0.85),  # 70% ±15% (gas-cooled)
+        "HTGR"    => (0.65, 0.95),  # 80% ±15% (using default)
+        "HTR/GFR" => (0.55, 0.85),  # 70% ±15% (gas-cooled fast)
+        "SFR"     => (0.55, 0.85),  # 70% ±15% (fast breeder)
+        "LFR"     => (0.55, 0.85),  # 70% ±15% (fast breeder)
+        "MSR"     => (0.65, 0.95),  # 80% ±15% (default)
+        "MSFR"    => (0.65, 0.95),  # 80% ±15% (default)
+        "MR"      => (0.65, 0.95)   # 80% ±15% (default)
+    )
+
+    # Error handling: ensure reactor type is mapped
+    if !haskey(cf_ranges, reactor_type)
+        error("Unmapped reactor type: '$reactor_type'. " *
+              "Valid types: $(join(keys(cf_ranges), ", "))")
+    end
+
+    return cf_ranges[reactor_type]
+end
+
+"""
     clean_numeric_string(s)
 
 Clean numeric strings by removing spaces, dashes, and 'x' markers
@@ -296,17 +341,19 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         df_output[!, :operating_time] = fill(60.0, nrow(df_work))
     end
 
-    # Columns 11-12: loadfactor range
-    if :capacity_factor_pct in propertynames(df_work)
-        cf_decimal = df_work[!, :capacity_factor_pct] ./ 100.0
-        df_output[!, :loadfactor_lower] = coalesce.(cf_decimal .- 0.025, 0.90)
-        df_output[!, :loadfactor_upper] = coalesce.(cf_decimal .+ 0.025, 0.95)
-        df_output[!, :loadfactor_lower] = max.(df_output[!, :loadfactor_lower], 0.0)
-        df_output[!, :loadfactor_upper] = min.(df_output[!, :loadfactor_upper], 1.0)
-    else
-        df_output[!, :loadfactor_lower] = fill(0.90, nrow(df_work))
-        df_output[!, :loadfactor_upper] = fill(0.95, nrow(df_work))
+    # Columns 11-12: loadfactor range (reactor-type-specific from WNA data)
+    # Use reactor-type-specific capacity factor ranges based on operational performance
+    loadfactor_lower = Float64[]
+    loadfactor_upper = Float64[]
+
+    for rtype in df_output[!, :type]
+        cf_min, cf_max = get_capacity_factor_range(rtype)
+        push!(loadfactor_lower, cf_min)
+        push!(loadfactor_upper, cf_max)
     end
+
+    df_output[!, :loadfactor_lower] = loadfactor_lower
+    df_output[!, :loadfactor_upper] = loadfactor_upper
 
     # Column 13: operating_cost_fix
     if :opex_fixed_usd_per_mw_yr in propertynames(df_work)
