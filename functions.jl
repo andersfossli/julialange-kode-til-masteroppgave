@@ -984,16 +984,30 @@ function generate_combined_sample_from_outer_base(param_set_S::Vector{Symbol},
     end
 
     # ==================================================================
-    # Investment (use seeded RNG)
+    # Investment (use seeded RNG for CRN)
     # ==================================================================
     if :investment in param_set_S
         combined[:investment] = [X_S_fixed.investment[1]]
     else
-        # Use deterministic scaling calculation (doesn't depend on WACC/CT for rothwell)
-        # But for randomness, use seeded RNG
-        temp_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
-                                 construction_time_range=construction_time_range)
-        combined[:investment] = temp_vars.investment
+        # Generate investment using seeded RNG (not gen_rand_vars which uses global RNG)
+        # Implement Rothwell scaling directly with seeded RNG
+        if opt_scaling == "rothwell"
+            scaling = [0.20, 0.75]  # Rothwell scaling parameters
+            # Generate scaling factor with seeded RNG
+            rand_scaling_val = rand(rng)  # Use seeded RNG!
+            rand_scaling = 2^(scaling[1]-1) + (2^(scaling[2]-1) - 2^(scaling[1]-1)) * rand_scaling_val
+            # Apply Rothwell formula
+            soak_factor = 1.0  # No SOAK discount in base simulations
+            rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor *
+                             (pj.plant_capacity/pj.reference_pj[2]) ^ (1 + log(rand_scaling) / log(2))
+            combined[:investment] = [rand_investment]
+        else
+            # For other scaling methods, fall back to gen_rand_vars (FIXME: should also use seeded RNG)
+            @warn("Investment generation for $opt_scaling uses global RNG - CRN may be violated")
+            temp_vars = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
+                                     construction_time_range=construction_time_range)
+            combined[:investment] = temp_vars.investment
+        end
     end
 
     # ==================================================================
