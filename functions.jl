@@ -134,16 +134,31 @@ function carelli_occ(p::Float64, occ::Float64; p_ref::Float64=1200.0, beta::Floa
 end
 
 """
-The gen_rand_vars function generates random variables for a given investment project, pj, based on a specified scaling option, opt_scaling, the number of simulations to run, n, a range of weighted average cost of capital (WACC) values, wacc, and a range of electricity price values, electricity_price.
-The total time of the reactor project, which is the sum of the construction time and operating time, is calculated by adding the elements at index 1 and 2 of the pj.time vector.
-Next, the function generates uniformly distributed random variables for the WACC, electricity price, and load factor using the rand function. The range of values for each variable is determined by the input ranges of wacc and electricity_price, and the pj.loadfactor attribute.
-The function then generates random project-specific variables based on the opt_scaling input. The function has four different branches of execution based on the value of opt_scaling.
-    If opt_scaling is "Manufacturer", the function uses manufacturer estimates to calculate a deterministic investment cost, rand_investment, which is the product of pj.investment, pj.plant_capacity, and ones(n) (where ones(n) is an array of n ones) multiplied by (1-pj.learning_factor)
-    If opt_scaling is "Roulstone", the function uses Roulstone scaling to calculate a random investment cost, rand_investment, which is the product of pj.reference_pj[1], pj.reference_pj[2], (1-pj.learning_factor), (pj.plant_capacity/pj.reference_pj[2]) raised to the power of a random scaling factor, rand_scaling, within the range specified in the scaling input.
-    If opt_scaling is "Rothwell", the function uses Rothwell scaling to calculate a random investment cost, rand_investment, which is the product of pj.reference_pj[1], pj.reference_pj[2], (1-pj.learning_factor), (pj.plant_capacity/pj.reference_pj[2]) raised to the power of 1 + logarithm base 2 of rand_scaling which is calculated by the range specified in the scaling input
-    If opt_scaling is "uniform", the function uses a uniform scaling to calculate a random investment cost, rand_investment, which is a random value within the range specified in the scaling input
-    If the opt_scaling is not one of the above, the function print an error message, "Option for the scaling method is unknown."
-Finally, the function returns the generated random variables in the form of a named tuple with four fields: wacc, electricity_price, loadfactor, and investment and their corresponding values.
+The gen_rand_vars function generates random variables for a given investment project, pj, based on a specified scaling option, opt_scaling, the number of simulations to run, n, a range of weighted average cost of capital (WACC) values, wacc, and electricity price value.
+
+The total time of the reactor project is calculated based on either the fixed construction time or the maximum of the construction_time_range parameter.
+
+The function generates uniformly distributed random variables for:
+- WACC: uniform distribution within wacc range
+- Electricity price: fixed at mean value (no longer uncertain)
+- Load factor: uniform distribution within pj.loadfactor range (reactor-type-specific)
+- Construction time: uniform distribution within construction_time_range (scale-specific)
+
+Investment cost generation based on opt_scaling:
+    - "manufacturer": Uses manufacturer estimates (pj.investment × pj.plant_capacity)
+    - "roulstone": Uses Roulstone scaling with random β ∈ [0.20, 0.75]
+    - "rothwell": Uses Rothwell scaling (Roulstone parameterization)
+    - "uniform": Uniform distribution between scaled bounds
+    - "carelli": Uses Carelli scaling (fixed β = 0.20, P_ref = 1200 MWe)
+
+Learning factors:
+    - SOAK discount: Applied only if apply_soak_discount=true (default: false)
+    - Learning curves: Applied only if apply_learning=true (default: false)
+    - By default, NO learning is applied in base Monte Carlo simulations
+    - Learning is handled separately in scenario simulations (see smr-mcs-learning.jl)
+
+Returns:
+    Named tuple with fields: wacc, electricity_price, loadfactor, investment, construction_time
 """
 function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
                        apply_learning::Bool=false, N_unit::Int=1, LR::Float64=0.0, kappa::Float64=1.0, floor_m::Union{Nothing,Float64}=nothing,
@@ -602,29 +617,33 @@ end
 """
 The gen_scaled_investment function takes in two arguments, scaling and pj, and returns an array containing the scaled investment costs for a given project.
 
-    Arguments    
+    Arguments
         scaling::Vector: A vector of scaling parameters that determines the range of the scaled investment costs.
         pj::project: An instance of the project struct that contains information about the investment concept, investment type, investment estimate by manufacturer, plant capacity, learning factor, project time, load factor, operating cost, and reference reactor.
-    
+
     Output
-        scaled_investment: A vector of scaled investment costs based on the project information and the given scaling parameter. The vector contains three parts:
+        scaled_investment: A vector of scaled investment costs based on the project information and the given scaling parameter. The vector contains four parts:
             The deterministic investment cost based on manufacturer estimates in USD per MW.
             The range (lower and upper bound) of scaled investment cost based on Roulstone in USD per MW.
             The range (lower and upper bound) of scaled investment cost based on Rothwell in USD per MW.
+            The scaled investment cost based on Carelli (fixed β = 0.20) in USD per MW.
+
+    Note: SOAK discount (learning factor) is NOT applied in this function. Learning is handled separately in scenario simulations via the apply_learning parameter in gen_rand_vars().
 """
 function gen_scaled_investment(scaling::Vector, pj::project)
 
     # generation of project specific scaled investment cost ranges
     # note that the scaling parameter here are converted such that Rothwell and Roulstone coincide.
+    # IMPORTANT: SOAK discount (1-learning_factor) removed - learning is applied separately in scenario simulations
         # deterministic investment cost based on manufacturer estimates [USD/MW]
         scaled_investment = pj.investment
         # scaled investment cost based on Roulstone [USD/MW]
-        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) .^ scaling / pj.plant_capacity)
+        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ scaling / pj.plant_capacity)
         # scaled investment cost based on Rothwell [USD/MW]
-        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(scaling) ./ log(2)) / pj.plant_capacity)
+        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(scaling) ./ log(2)) / pj.plant_capacity)
         # scaled investment cost based on Carelli (fixed β = 0.20) [USD/MW]
         carelli_scaling = 0.20
-        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (1-pj.learning_factor) * (pj.plant_capacity/pj.reference_pj[2]) ^ carelli_scaling / pj.plant_capacity)
+        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) ^ carelli_scaling / pj.plant_capacity)
 
     # output
     return(scaled_investment = scaled_investment)
