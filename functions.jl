@@ -1250,6 +1250,11 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     # ═══════════════════════════════════════════════════════════════
     # FIX #2: Generate shared outer design (same X_S^(k) for all coalitions)
     # ═══════════════════════════════════════════════════════════════
+    # Seed global RNG for reproducible outer_base generation
+    # This ensures consistent results across runs (ChatGPT recommendation #3)
+    Random.seed!(42)  # Fixed seed for reproducibility
+    @info "Global RNG seeded for reproducible outer_base generation"
+
     @info "Generating shared outer design (n_outer=$n_outer samples) for all coalitions"
     outer_base = []
     for k in 1:n_outer
