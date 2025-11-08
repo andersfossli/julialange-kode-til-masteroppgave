@@ -112,6 +112,27 @@ fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCO
 save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
 save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
 
+##### heatmaps Shapley effects #####
+# Requires Shapley results from run_simulation.jl
+# Shapley effects properly handle correlated inputs (WACC × Construction Time)
+
+@info("Generating Shapley sensitivity plots")
+
+# Load Shapley results
+shapley_npv_results_plot = CSV.File("$outputpath/shapley-npv_results-$opt_scaling.csv") |> DataFrame
+shapley_lcoe_results_plot = CSV.File("$outputpath/shapley-lcoe_results-$opt_scaling.csv") |> DataFrame
+
+# Create heatmap plots grouped by scale
+fig_shapley_npv_by_scale = Base.invokelatest(shapley_plot_by_scale, shapley_npv_results_plot, "NPV Shapley Effects", pjs)
+fig_shapley_lcoe_by_scale = Base.invokelatest(shapley_plot_by_scale, shapley_lcoe_results_plot, "LCOE Shapley Effects", pjs)
+
+save("$outputpath/fig-shapley_npv_by_scale-$opt_scaling.pdf", fig_shapley_npv_by_scale);
+save("$outputpath/fig-shapley_lcoe_by_scale-$opt_scaling.pdf", fig_shapley_lcoe_by_scale);
+
+@info("Shapley sensitivity plots saved")
+@info("  - fig-shapley_npv_by_scale-$opt_scaling.pdf")
+@info("  - fig-shapley_lcoe_by_scale-$opt_scaling.pdf")
+
 ##### lcoe comparison plot #####
 # requires results for all 15 reactor concepts
 
