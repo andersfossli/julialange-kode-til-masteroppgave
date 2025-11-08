@@ -57,7 +57,7 @@ println(io, "  NPV:  $(round(total_var_npv, sigdigits=6))")
 println(io, "  LCOE: $(round(total_var_lcoe, sigdigits=6))")
 
 # Generate outer base
-n_outer = 30
+n_outer = 50  # Increased from 30 to reduce V(∅) estimation noise
 n_inner = 100
 Random.seed!(12345)
 outer_base = []
