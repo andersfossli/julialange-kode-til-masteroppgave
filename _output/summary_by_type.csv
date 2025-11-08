@@ -1,0 +1,5 @@
+Type,Full_Name,Count,Share,Description
+PWR,Pressurized Water Reactor,26,63.4%,Dominant type in SMR and Large
+HTR,High-Temperature Gas-cooled Reactor,6,14.6%,"Fort St. Vrain, HTR-PM, EM2"
+SFR,Sodium-cooled Fast Reactor,5,12.2%,"BN, CEFR, ARC designs"
+BWR,Boiling Water Reactor,4,9.8%,"GE, Hitachi designs"
