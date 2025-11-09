@@ -25,7 +25,7 @@ include("data.jl")
 ##### simulation parameters #####
 
 # number of Monte Carlo runs
-n = Int64(100000)  # PRODUCTION: 100k samples for robust estimates
+n = Int64(1_000_000)  # PRODUCTION: 1M samples for publication-quality estimates (matches Uncertainties report)
 
 # wholesale electricity price [USD/MWh] - now fixed at mean value
 electricity_price_mean = mean([52.2, 95.8])
