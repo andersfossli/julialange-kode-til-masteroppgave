@@ -96,23 +96,50 @@ The mcs_plot function creates a box plot figure for Monte Carlo simulation resul
     mcs_results: a DataFrame containing the Monte Carlo simulation results. The rows represent individual runs, and the columns represent different reactor types and parameters.
     title: a string specifying the title of the figure.
     ylabel: a string specifying the label of the y-axis.
+    pjs: (optional) Vector of reactor project objects to dynamically group by type and scale
 The function generates a box plot for each of the three categories of reactor types. The x-axis of each box plot is labeled with the parameter names, and the y-axis is labeled with the ylabel argument. The color of the box plots depends on the reactor type. The figure has a title specified by the title argument, and each box plot has a label specified by the corresponding reactor type.
 """
-function mcs_plot(mcs_results, title::String, ylabel::String)
+function mcs_plot(mcs_results, title::String, ylabel::String, pjs::Union{Vector,Nothing}=nothing)
 
-    xticks_wc = names(mcs_results)[1:9];
-    xticks_ht = names(mcs_results)[10:12];
-    xticks_sf = names(mcs_results)[13:15];
+    # If pjs is provided, dynamically group reactors by type
+    if !isnothing(pjs)
+        # Group reactor names by type
+        pwr_bwr_reactors = String[]
+        htr_reactors = String[]
+        sfr_reactors = String[]
+
+        for pj in pjs
+            if pj.name in names(mcs_results)
+                if pj.type == "PWR" || pj.type == "BWR"
+                    push!(pwr_bwr_reactors, pj.name)
+                elseif pj.type == "HTR"
+                    push!(htr_reactors, pj.name)
+                elseif pj.type == "SFR"
+                    push!(sfr_reactors, pj.name)
+                end
+            end
+        end
+
+        xticks_wc = pwr_bwr_reactors
+        xticks_ht = htr_reactors
+        xticks_sf = sfr_reactors
+    else
+        # Fallback to old hardcoded behavior
+        xticks_wc = names(mcs_results)[1:9];
+        xticks_ht = names(mcs_results)[10:12];
+        xticks_sf = names(mcs_results)[13:15];
+    end
 
     mcs_boxplot = Figure();
+    n = nrow(mcs_results)  # Number of Monte Carlo samples
 
     ax_wc = Axis(mcs_boxplot[1,1], xticks = (1:length(xticks_wc), xticks_wc), ylabel = ylabel);
     ax_wc.xticklabelrotation = π / 3;
     ax_wc.yticklabelrotation = π / 2;
     ax_wc.xticklabelalign = (:right, :center);
 
-    for i in 1:length(xticks_wc)
-        boxplot!(ax_wc, fill(i,n), mcs_results[!,i], color = :green)
+    for (i, reactor_name) in enumerate(xticks_wc)
+        boxplot!(ax_wc, fill(i,n), mcs_results[!,reactor_name], color = :orangered)
     end;
 
     Label(mcs_boxplot[1, 1, Top()], "BWR & PWR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0))
@@ -122,8 +149,8 @@ function mcs_plot(mcs_results, title::String, ylabel::String)
     ax_ht.yticklabelrotation = π / 2;
     ax_ht.xticklabelalign = (:right, :center);
 
-    for i in 1:length(xticks_ht)
-        boxplot!(ax_ht, fill(i,n), mcs_results[!,i+length(xticks_wc)], color = :red)
+    for (i, reactor_name) in enumerate(xticks_ht)
+        boxplot!(ax_ht, fill(i,n), mcs_results[!,reactor_name], color = :gold)
     end;
 
     Label(mcs_boxplot[1, 2, Top()], "HTR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0));
@@ -133,17 +160,19 @@ function mcs_plot(mcs_results, title::String, ylabel::String)
     ax_sf.yticklabelrotation = π / 2;
     ax_sf.xticklabelalign = (:right, :center);
 
-    for i in 1:length(xticks_sf)
-        boxplot!(ax_sf, fill(i,n), mcs_results[!,i+length(xticks_wc)+length(xticks_sf)], color = :orange)
+    for (i, reactor_name) in enumerate(xticks_sf)
+        boxplot!(ax_sf, fill(i,n), mcs_results[!,reactor_name], color = :teal)
     end;
 
     Label(mcs_boxplot[1, 3, Top()], "SFR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0));
 
     Label(mcs_boxplot[0, :], title, fontsize = 24, font = "Noto Sans Bold", color = (:black, 0.25))
 
-    colsize!(mcs_boxplot.layout, 1, Relative(6/10));
-    colsize!(mcs_boxplot.layout, 2, Relative(2/10));
-    colsize!(mcs_boxplot.layout, 3, Relative(2/10));
+    # Adjust column sizes based on number of reactors in each category
+    total_reactors = length(xticks_wc) + length(xticks_ht) + length(xticks_sf)
+    colsize!(mcs_boxplot.layout, 1, Relative(length(xticks_wc) / total_reactors));
+    colsize!(mcs_boxplot.layout, 2, Relative(length(xticks_ht) / total_reactors));
+    colsize!(mcs_boxplot.layout, 3, Relative(length(xticks_sf) / total_reactors));
 
     return mcs_boxplot
 

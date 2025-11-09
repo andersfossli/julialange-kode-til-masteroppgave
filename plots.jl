@@ -150,10 +150,10 @@ save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison
 @info("Skipping density plots (commented out - saves 300k simulations). Uncomment if needed for scaling method comparison.");
 
 ##### boxplots Monte Carlo simulation results #####
-# requires results for all 15 reactor concepts
+# Now includes Large, SMR, and Micro reactors grouped by type (PWR/BWR, HTR, SFR)
 
-fig_mcs_npv = mcs_plot(npv_results, "NPV", "[USD/MW]")
-fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[USD/MWh]")
+fig_mcs_npv = mcs_plot(npv_results, "NPV", "[USD/MW]", pjs)
+fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[USD/MWh]", pjs)
 
 save("$outputpath/fig-mcs_npv-$opt_scaling.pdf", fig_mcs_npv);
 save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
