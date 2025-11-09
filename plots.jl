@@ -199,7 +199,7 @@ else
 end
 
 ##### lcoe comparison plot #####
-# Enhanced version: includes Large, SMR, and Micro reactors grouped by type
+# Original structure preserved - adding Large and Micro to SMR results
 
 # Load LCOE summary statistics
 lcoe_summary = CSV.read("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", DataFrame)
@@ -207,40 +207,25 @@ lcoe_summary = CSV.read("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", DataFra
 # Read external LCOE data (renewables, conventionals)
 lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
 
-# Group reactors by scale and type
-reactor_groups = Dict{String, Vector{String}}()
-for pj in pjs
-    key = "$(pj.scale) $(pj.type)"
-    if !haskey(reactor_groups, key)
-        reactor_groups[key] = []
-    end
-    push!(reactor_groups[key], pj.name)
-end
-
-# Calculate LCOE ranges for each group
+# Calculate LCOE ranges for simulation results (Large/SMR/Micro by type)
 sim_lcoe_data = DataFrame(technology=String[], lower_bound=Float64[], upper_bound=Float64[])
 
-# Order: Large → SMR → Micro, then by type within each scale
+# Group order: Large combined, then SMR by type, then Micro by type
 group_order = [
-    # Large reactors (all combined as PWR/BWR - they're all light water)
     ("Large", "All", "Large PWR & BWR"),
-    # SMR by type
     ("SMR", "PWR", "SMR PWR"),
     ("SMR", "BWR", "SMR BWR"),
     ("SMR", "HTR", "SMR HTR"),
     ("SMR", "SFR", "SMR SFR"),
-    # Micro by type
     ("Micro", "PWR", "Micro PWR"),
     ("Micro", "HTR", "Micro HTR"),
     ("Micro", "SFR", "Micro SFR")
 ]
 
 for (scale, rtype, label) in group_order
-    # Find matching reactors
     matching_reactors = String[]
     for pj in pjs
         if scale == "Large" && pj.scale == "Large"
-            # Large: combine all (PWR/BWR)
             push!(matching_reactors, pj.name)
         elseif pj.scale == scale && pj.type == rtype
             push!(matching_reactors, pj.name)
@@ -248,7 +233,6 @@ for (scale, rtype, label) in group_order
     end
 
     if !isempty(matching_reactors)
-        # Get LCOE bounds for these reactors
         reactor_lcoes = []
         for reactor in matching_reactors
             if reactor in names(lcoe_summary)
@@ -258,7 +242,6 @@ for (scale, rtype, label) in group_order
                 end
             end
         end
-
         if !isempty(reactor_lcoes)
             lower = minimum([x[1] for x in reactor_lcoes])
             upper = maximum([x[2] for x in reactor_lcoes])
@@ -267,7 +250,7 @@ for (scale, rtype, label) in group_order
     end
 end
 
-# Combine with external data
+# Combine external data with simulation results
 lcoe_plot_data = vcat(
     select(lcoe_dat, [:technology, :lower_bound, :upper_bound]),
     sim_lcoe_data
@@ -291,14 +274,11 @@ end
 xlabel = "[USD/MWh]"
 yticks = lcoe_plot_data[!,:technology]
 
-# Color scheme: simple approach based on actual data
-n_external = nrow(lcoe_dat)  # External data (renewables + conventionals)
-n_simulation = nrow(sim_lcoe_data)  # Our simulation results
-
-# Colors: external data (green/blue), simulation results (red)
+# Color scheme (original structure)
+n_external = nrow(lcoe_dat)
 col = vcat(
-    fill(1, n_external),      # External benchmarks
-    fill(2, n_simulation)     # All simulation results (Large/SMR/Micro)
+    fill(1, n_external),         # External benchmarks
+    fill(2, nrow(sim_lcoe_data))  # Simulation results
 )
 
 fig_lcoe_comparison = Figure()
@@ -312,14 +292,16 @@ xlims!(10, 25000)
 rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!,:lower_bound], lcoe_plot_data[!,:upper_bound],
            linewidth = 6, whiskerwidth = 8, direction = :x, color = col)
 
-# Section dividers
-hlines!(ax_lcoe, [n_external + 0.5], linestyle = :dash, color = :gray, linewidth = 1)
+# ORIGINAL dividing lines (8.5 separates renewables from conventionals)
+hlines!(ax_lcoe, [8.5, n_external + 0.5], linestyle = :dash, color = :red)
 
-# Labels
-text!(15000, n_external/2; text = "External\nBenchmarks", align = (:center, :center),
-      justification = :center, rotation = π/2, fontsize = 10)
-text!(16, n_external + n_simulation/2 + 0.5; text = "Simulation\n($plot_scaling)", align = (:center, :center),
-      justification = :center, rotation = π/2, fontsize = 10)
+# ORIGINAL labels (renewables, conventionals) + nuclear section
+text!([15000, 15000, 16],
+      [4, 10.5, n_external + nrow(sim_lcoe_data)/2 + 0.5],
+      text = ["Renewables\n(LAZARD)", "Conventionals\n(LAZARD)", "Nuclear\n($plot_scaling)"],
+      align = (:center, :center),
+      justification = :center,
+      rotation = π/2)
 
 # Add values
 text!(lcoe_plot_data[!,:lower_bound], 1:length(yticks),
