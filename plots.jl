@@ -33,28 +33,30 @@ end
 npv_results = CSV.read("$outputpath/mcs-npv_results-$opt_scaling.csv", DataFrame)
 lcoe_results = CSV.read("$outputpath/mcs-lcoe_results-$opt_scaling.csv", DataFrame)
 
+# Declare variables outside try blocks for proper scoping
+si_npv_results = nothing
+si_lcoe_results = nothing
+shapley_npv_results = nothing
+shapley_lcoe_results = nothing
+
 # Load Sensitivity Index results (if they exist)
 try
-    si_npv_results = CSV.read("$outputpath/si-npv_results-$opt_scaling.csv", DataFrame)
-    si_lcoe_results = CSV.read("$outputpath/si-lcoe_results-$opt_scaling.csv", DataFrame)
+    global si_npv_results = CSV.read("$outputpath/si-npv_results-$opt_scaling.csv", DataFrame)
+    global si_lcoe_results = CSV.read("$outputpath/si-lcoe_results-$opt_scaling.csv", DataFrame)
     @info("Loaded sensitivity index results")
 catch e
     @warn("Could not load sensitivity index results: $e")
     @warn("Run run_2_sensitivity.jl first if you need SI plots")
-    si_npv_results = nothing
-    si_lcoe_results = nothing
 end
 
 # Load Shapley results (if they exist)
 try
-    shapley_npv_results = CSV.read("$outputpath/shapley-npv_results-$opt_scaling.csv", DataFrame)
-    shapley_lcoe_results = CSV.read("$outputpath/shapley-lcoe_results-$opt_scaling.csv", DataFrame)
+    global shapley_npv_results = CSV.read("$outputpath/shapley-npv_results-$opt_scaling.csv", DataFrame)
+    global shapley_lcoe_results = CSV.read("$outputpath/shapley-lcoe_results-$opt_scaling.csv", DataFrame)
     @info("Loaded Shapley results")
 catch e
     @warn("Could not load Shapley results: $e")
     @warn("Run run_3_shapley.jl first if you need Shapley plots")
-    shapley_npv_results = nothing
-    shapley_lcoe_results = nothing
 end
 
 @info("Data loaded successfully. Generating plots...")
