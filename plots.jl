@@ -210,22 +210,32 @@ lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
 # Calculate LCOE ranges for simulation results (Large/SMR/Micro by type)
 sim_lcoe_data = DataFrame(technology=String[], lower_bound=Float64[], upper_bound=Float64[])
 
-# Group order: Large combined, then SMR by type, then Micro by type
-group_order = [
-    ("Large", "All", "Large PWR & BWR"),
-    ("SMR", "PWR", "SMR PWR"),
-    ("SMR", "BWR", "SMR BWR"),
-    ("SMR", "HTR", "SMR HTR"),
-    ("SMR", "SFR", "SMR SFR"),
+# Reactor groups in display order (BOTTOM to TOP for plotting)
+# Plot shows: Renewables → Conventionals → SMR → Micro → Large (bottom to top)
+reactor_groups = [
+    # SMR section (OLD structure - 3 rows with BWR & PWR combined)
+    ("SMR", "SFR", "SFR SMRs"),
+    ("SMR", "HTR", "HTR SMRs"),
+    ("SMR", "BWR+PWR", "BWR & PWR SMRs"),  # Special: combines both types
+
+    # Micro section (NEW - 3 rows)
     ("Micro", "PWR", "Micro PWR"),
     ("Micro", "HTR", "Micro HTR"),
-    ("Micro", "SFR", "Micro SFR")
+    ("Micro", "SFR", "Micro SFR"),
+
+    # Large section (NEW - 3 rows)
+    ("Large", "PWR+BWR", "Large PWR & BWR"),  # Special: combines both types
+    ("Large", "HTR", "Large HTR"),
+    ("Large", "SFR", "Large SFR")
 ]
 
-for (scale, rtype, label) in group_order
+for (scale, rtype, label) in reactor_groups
     matching_reactors = String[]
     for pj in pjs
-        if scale == "Large" && pj.scale == "Large"
+        # Handle special combined rows
+        if rtype == "BWR+PWR" && pj.scale == scale && (pj.type == "BWR" || pj.type == "PWR")
+            push!(matching_reactors, pj.name)
+        elseif rtype == "PWR+BWR" && pj.scale == scale && (pj.type == "PWR" || pj.type == "BWR")
             push!(matching_reactors, pj.name)
         elseif pj.scale == scale && pj.type == rtype
             push!(matching_reactors, pj.name)
@@ -274,11 +284,18 @@ end
 xlabel = "[USD/MWh]"
 yticks = lcoe_plot_data[!,:technology]
 
-# Color scheme (original structure)
+# Color scheme matching OLD structure
+# Renewables (rows 1-8): purple
+# Conventionals (rows 9-12): dark blue
+# All nuclear (SMR/Micro/Large): yellow/gold (same as old SMR color)
 n_external = nrow(lcoe_dat)
+n_renewables = 8
+n_conventionals = n_external - n_renewables  # Should be 4
+
 col = vcat(
-    fill(1, n_external),         # External benchmarks
-    fill(2, nrow(sim_lcoe_data))  # Simulation results
+    fill(1, n_renewables),           # Renewables (purple)
+    fill(2, n_conventionals),        # Conventionals (dark blue)
+    fill(3, nrow(sim_lcoe_data))     # All nuclear (yellow/gold)
 )
 
 fig_lcoe_comparison = Figure()
@@ -292,16 +309,37 @@ xlims!(10, 25000)
 rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!,:lower_bound], lcoe_plot_data[!,:upper_bound],
            linewidth = 6, whiskerwidth = 8, direction = :x, color = col)
 
-# ORIGINAL dividing lines (8.5 separates renewables from conventionals)
-hlines!(ax_lcoe, [8.5, n_external + 0.5], linestyle = :dash, color = :red)
+# Dividing lines (4 red dashed lines)
+# Line 1: Between renewables and conventionals (after row 8)
+renewables_end = 8
+# Line 2: Between conventionals and SMR (after row 12 = all LAZARD data)
+conventionals_end = n_external  # Should be 12
+# Line 3: Between SMR and Micro (after 3 SMR rows)
+smr_end = n_external + 3  # Row 15
+# Line 4: Between Micro and Large (after 3 Micro rows)
+micro_end = n_external + 6  # Row 18
 
-# ORIGINAL labels (renewables, conventionals) + nuclear section
-text!([15000, 15000, 16],
-      [4, 10.5, n_external + nrow(sim_lcoe_data)/2 + 0.5],
-      text = ["Renewables\n(LAZARD)", "Conventionals\n(LAZARD)", "Nuclear\n($plot_scaling)"],
+hlines!(ax_lcoe, [renewables_end + 0.5, conventionals_end + 0.5, smr_end + 0.5, micro_end + 0.5],
+        linestyle = :dash, color = :red, linewidth = 1.5)
+
+# Section labels (rotated 90°, positioned at center of each section)
+renewables_center = renewables_end / 2  # Center of rows 1-8 = row 4
+conventionals_center = renewables_end + (conventionals_end - renewables_end) / 2  # Center of rows 9-12 = row 10.5
+smr_center = n_external + 1.5  # Center of 3 SMR rows (rows 13-15) = row 14
+micro_center = smr_end + 1.5  # Center of 3 Micro rows (rows 16-18) = row 17
+large_center = micro_end + 1.5  # Center of 3 Large rows (rows 19-21) = row 20
+
+text!([15000, 15000, 15000, 15000, 15000],
+      [renewables_center, conventionals_center, smr_center, micro_center, large_center],
+      text = ["Renewables\n(LAZARD)",
+              "Conventionals\n(LAZARD)",
+              "SMR\n($plot_scaling)",
+              "Micro\n($plot_scaling)",
+              "Large\n($plot_scaling)"],
       align = (:center, :center),
       justification = :center,
-      rotation = π/2)
+      rotation = π/2,
+      fontsize = 10)
 
 # Add values
 text!(lcoe_plot_data[!,:lower_bound], 1:length(yticks),
