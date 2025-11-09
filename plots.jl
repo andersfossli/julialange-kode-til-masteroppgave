@@ -291,17 +291,14 @@ end
 xlabel = "[USD/MWh]"
 yticks = lcoe_plot_data[!,:technology]
 
-# Color scheme: renewables (green), conventionals (blue), simulation results (varies by scale)
-n_external = nrow(lcoe_dat)
-n_large = 1  # Large PWR & BWR
-n_smr = 4    # SMR PWR, BWR, HTR, SFR
-n_micro = 3  # Micro PWR, HTR, SFR
+# Color scheme: simple approach based on actual data
+n_external = nrow(lcoe_dat)  # External data (renewables + conventionals)
+n_simulation = nrow(sim_lcoe_data)  # Our simulation results
 
+# Colors: external data (green/blue), simulation results (red)
 col = vcat(
-    fill(1, 8),  # Renewables & conventionals (from lcoe_dat)
-    [2],         # Large (red)
-    fill(3, n_smr),   # SMR (blue)
-    fill(4, n_micro)  # Micro (purple)
+    fill(1, n_external),      # External benchmarks
+    fill(2, n_simulation)     # All simulation results (Large/SMR/Micro)
 )
 
 fig_lcoe_comparison = Figure()
@@ -316,21 +313,13 @@ rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!,:lower_bound], lcoe_plot_
            linewidth = 6, whiskerwidth = 8, direction = :x, color = col)
 
 # Section dividers
-hlines!(ax_lcoe, [8.5, 9.5], linestyle = :dash, color = :gray, linewidth = 1)
+hlines!(ax_lcoe, [n_external + 0.5], linestyle = :dash, color = :gray, linewidth = 1)
 
 # Labels
-section_labels = [
-    (15000, 4, "Renewables\n(LAZARD)"),
-    (15000, 10.5, "Conventionals\n(LAZARD)"),
-    (16, n_external + 0.5, "Large\n($plot_scaling)"),
-    (16, n_external + n_large + n_smr/2 + 0.5, "SMR\n($plot_scaling)"),
-    (16, n_external + n_large + n_smr + n_micro/2 + 0.5, "Micro\n($plot_scaling)")
-]
-
-for (x, y, txt) in section_labels
-    text!(x, y; text = txt, align = (:center, :center),
-          justification = :center, rotation = π/2, fontsize = 10)
-end
+text!(15000, n_external/2; text = "External\nBenchmarks", align = (:center, :center),
+      justification = :center, rotation = π/2, fontsize = 10)
+text!(16, n_external + n_simulation/2 + 0.5; text = "Simulation\n($plot_scaling)", align = (:center, :center),
+      justification = :center, rotation = π/2, fontsize = 10)
 
 # Add values
 text!(lcoe_plot_data[!,:lower_bound], 1:length(yticks),
