@@ -1227,14 +1227,19 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     n_outer = 50   # Number of X_S realizations (outer loop) - PRODUCTION
     n_inner = 100  # Number of X_~S samples per X_S (inner loop)
 
+    # OPTIMIZATION: Use smaller n_base for total variance (doesn't need 100k samples!)
+    # Base variance is only used for reference, nested sampling is the main computation
+    n_base = min(n, 10000)  # Cap at 10k samples for base variance
+
     @info "Nested sampling parameters: n_outer=$n_outer, n_inner=$n_inner"
     @info "Cost per coalition: $(n_outer * n_inner) model evaluations"
+    @info "Base variance samples: $n_base (optimization: reduced from $n)"
 
     # Generate base samples A and B (independent draws with correlation structure preserved)
     @info "Generating base samples A and B for total variance estimation"
-    rand_vars_A = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
+    rand_vars_A = gen_rand_vars(opt_scaling, n_base, wacc, electricity_price_mean, pj;
                                 construction_time_range=construction_time_range)
-    rand_vars_B = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pj;
+    rand_vars_B = gen_rand_vars(opt_scaling, n_base, wacc, electricity_price_mean, pj;
                                 construction_time_range=construction_time_range)
 
     # Run base simulations
