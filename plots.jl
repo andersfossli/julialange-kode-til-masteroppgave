@@ -245,11 +245,10 @@ for (scale, rtype, label) in reactor_groups
     if !isempty(matching_reactors)
         reactor_lcoes = []
         for reactor in matching_reactors
-            if reactor in names(lcoe_summary)
-                idx = findfirst(lcoe_summary.variable .== reactor)
-                if !isnothing(idx)
-                    push!(reactor_lcoes, (lcoe_summary.q25[idx], lcoe_summary.q75[idx]))
-                end
+            # Find reactor in the variable column
+            idx = findfirst(lcoe_summary.variable .== reactor)
+            if !isnothing(idx)
+                push!(reactor_lcoes, (lcoe_summary.q25[idx], lcoe_summary.q75[idx]))
             end
         end
         if !isempty(reactor_lcoes)
@@ -292,10 +291,15 @@ n_external = nrow(lcoe_dat)
 n_renewables = 8
 n_conventionals = n_external - n_renewables  # Should be 4
 
+# Define explicit colors
+renewable_color = :purple
+conventional_color = :darkblue
+nuclear_color = :gold
+
 col = vcat(
-    fill(1, n_renewables),           # Renewables (purple)
-    fill(2, n_conventionals),        # Conventionals (dark blue)
-    fill(3, nrow(sim_lcoe_data))     # All nuclear (yellow/gold)
+    fill(renewable_color, n_renewables),      # Renewables (purple)
+    fill(conventional_color, n_conventionals), # Conventionals (dark blue)
+    fill(nuclear_color, nrow(sim_lcoe_data))  # All nuclear (yellow/gold)
 )
 
 fig_lcoe_comparison = Figure()
