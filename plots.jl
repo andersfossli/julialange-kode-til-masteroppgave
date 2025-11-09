@@ -208,7 +208,7 @@ lcoe_summary = CSV.read("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", DataFra
 lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
 
 # Calculate LCOE ranges for simulation results (Large/SMR/Micro by type)
-sim_lcoe_data = DataFrame(technology=String[], lower_bound=Float64[], upper_bound=Float64[])
+sim_lcoe_data = DataFrame(technology=String[], lower_bound=Float64[], upper_bound=Float64[], reactor_type=String[])
 
 # Reactor groups in display order (BOTTOM to TOP for plotting)
 # Plot shows: Renewables → Conventionals → SMR → Micro → Large (bottom to top)
@@ -254,7 +254,9 @@ for (scale, rtype, label) in reactor_groups
         if !isempty(reactor_lcoes)
             lower = minimum([x[1] for x in reactor_lcoes])
             upper = maximum([x[2] for x in reactor_lcoes])
-            push!(sim_lcoe_data, (label, lower, upper))
+            # Store reactor type for color assignment
+            reactor_type = rtype == "BWR+PWR" || rtype == "PWR+BWR" ? "PWR" : rtype
+            push!(sim_lcoe_data, (label, lower, upper, reactor_type))
         end
     end
 end
@@ -283,23 +285,34 @@ end
 xlabel = "[USD/MWh]"
 yticks = lcoe_plot_data[!,:technology]
 
-# Color scheme matching OLD structure
+# Color scheme with reactor type variation
 # Renewables (rows 1-8): purple
 # Conventionals (rows 9-12): dark blue
-# All nuclear (SMR/Micro/Large): yellow/gold (same as old SMR color)
+# Nuclear reactors: color by type (SFR=teal, HTR=yellow, PWR/BWR=orangered)
 n_external = nrow(lcoe_dat)
 n_renewables = 8
 n_conventionals = n_external - n_renewables  # Should be 4
 
-# Define explicit colors
-renewable_color = :purple
-conventional_color = :darkblue
-nuclear_color = :gold
+# Define color mapping by reactor type
+function get_reactor_color(reactor_type)
+    if reactor_type == "SFR"
+        return :teal
+    elseif reactor_type == "HTR"
+        return :gold
+    elseif reactor_type == "PWR"
+        return :orangered
+    else
+        return :gray  # Fallback
+    end
+end
+
+# Build color vector
+nuclear_colors = [get_reactor_color(rt) for rt in sim_lcoe_data.reactor_type]
 
 col = vcat(
-    fill(renewable_color, n_renewables),      # Renewables (purple)
-    fill(conventional_color, n_conventionals), # Conventionals (dark blue)
-    fill(nuclear_color, nrow(sim_lcoe_data))  # All nuclear (yellow/gold)
+    fill(:purple, n_renewables),       # Renewables (purple)
+    fill(:darkblue, n_conventionals),  # Conventionals (dark blue)
+    nuclear_colors                      # Nuclear (color by type)
 )
 
 fig_lcoe_comparison = Figure()
