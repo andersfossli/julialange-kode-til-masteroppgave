@@ -208,7 +208,8 @@ lcoe_summary = CSV.read("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", DataFra
 lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
 
 # Calculate LCOE ranges for simulation results (Large/SMR/Micro by type)
-sim_lcoe_data = DataFrame(technology=String[], lower_bound=Float64[], upper_bound=Float64[], reactor_type=String[])
+sim_lcoe_data = DataFrame(technology=String[], lower_bound=Float64[], upper_bound=Float64[])
+reactor_types = String[]  # Store reactor types separately for color mapping
 
 # Reactor groups in display order (BOTTOM to TOP for plotting)
 # Plot shows: Renewables → Conventionals → SMR → Micro → Large (bottom to top)
@@ -254,9 +255,10 @@ for (scale, rtype, label) in reactor_groups
         if !isempty(reactor_lcoes)
             lower = minimum([x[1] for x in reactor_lcoes])
             upper = maximum([x[2] for x in reactor_lcoes])
-            # Store reactor type for color assignment
+            push!(sim_lcoe_data, (label, lower, upper))
+            # Store reactor type separately for color assignment
             reactor_type = rtype == "BWR+PWR" || rtype == "PWR+BWR" ? "PWR" : rtype
-            push!(sim_lcoe_data, (label, lower, upper, reactor_type))
+            push!(reactor_types, reactor_type)
         end
     end
 end
@@ -307,7 +309,7 @@ function get_reactor_color(reactor_type)
 end
 
 # Build color vector
-nuclear_colors = [get_reactor_color(rt) for rt in sim_lcoe_data.reactor_type]
+nuclear_colors = [get_reactor_color(rt) for rt in reactor_types]
 
 col = vcat(
     fill(:purple, n_renewables),       # Renewables (purple)
