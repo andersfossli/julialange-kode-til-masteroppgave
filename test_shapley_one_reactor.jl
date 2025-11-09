@@ -24,6 +24,9 @@ construction_time_ranges = Dict(
     "Large" => [5, 12]
 )
 
+# Scaling parameter (required by gen_rand_vars)
+scaling = [0.20, 0.75]
+
 opt_scaling = "rothwell"
 
 @info("Testing Shapley analysis on FIRST reactor only")
