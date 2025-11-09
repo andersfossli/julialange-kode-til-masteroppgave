@@ -251,11 +251,21 @@ function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
         if haskey(lcoe_by_scale, scale) && !isempty(lcoe_by_scale[scale])
             data = lcoe_by_scale[scale]
 
-            # Create axis for this subplot
+            # Calculate 10th and 90th percentiles for x-axis limits (removes extreme tails)
+            q10 = quantile(data, 0.10)
+            q90 = quantile(data, 0.90)
+
+            # Add 10% padding to the range for better visualization
+            range_width = q90 - q10
+            xlim_low = q10 - 0.1 * range_width
+            xlim_high = q90 + 0.1 * range_width
+
+            # Create axis for this subplot with limited x-range
             ax = Axis(fig[1, col_idx],
                       xlabel = "LCOE [USD/MWh]",
                       ylabel = "Probability Density",
-                      title = "$scale Reactors")
+                      title = "$scale Reactors (10-90% quantile range)",
+                      limits = (xlim_low, xlim_high, nothing, nothing))
 
             # Plot histogram with probability density normalization
             hist!(ax, data,
@@ -604,7 +614,8 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
     # Create figure with 3 scale groups side by side
     fig = Figure(size = (1800, 600))
     scale_order = ["Micro", "SMR", "Large"]
-    colors_map = Dict("Micro" => :reds, "SMR" => :blues, "Large" => :greens)
+    # Use :deep colormap (same as old si_plot) for consistency across all scales
+    colormap_si = :deep
 
     for (col_idx, scale) in enumerate(scale_order)
         reactors = scale_groups[scale]
@@ -638,7 +649,7 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
         ax_s.xticklabelalign = (:right, :center)
         ax_s.yticklabelsize = 8  # Smaller labels for readability
 
-        hmap_s = heatmap!(ax_s, data_s, colormap = colors_map[scale], colorrange = (0, 1))
+        hmap_s = heatmap!(ax_s, data_s, colormap = colormap_si, colorrange = (0, 1))
 
         # Add text labels
         for i in 1:length(xticks), j in 1:length(yticks_scale)
@@ -656,7 +667,7 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
         ax_st.xticklabelalign = (:right, :center)
         ax_st.yticklabelsize = 8  # Smaller labels for readability
 
-        hmap_st = heatmap!(ax_st, data_st, colormap = colors_map[scale], colorrange = (0, 1))
+        hmap_st = heatmap!(ax_st, data_st, colormap = colormap_si, colorrange = (0, 1))
 
         # Add text labels
         for i in 1:length(xticks), j in 1:length(yticks_scale)
@@ -712,7 +723,8 @@ function shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
     # Single row (unlike Sobol which has S and ST)
     fig = Figure(size = (1800, 400))
     scale_order = ["Micro", "SMR", "Large"]
-    colors_map = Dict("Micro" => :reds, "SMR" => :blues, "Large" => :greens)
+    # Use :deep colormap (same as old si_plot) for consistency
+    colormap_shapley = :deep
 
     for (col_idx, scale) in enumerate(scale_order)
         reactors = scale_groups[scale]
@@ -746,7 +758,7 @@ function shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
         ax_shapley.yticklabelsize = 8  # Smaller labels for readability
 
         hmap_shapley = heatmap!(ax_shapley, data_shapley,
-                                colormap = colors_map[scale],
+                                colormap = colormap_shapley,
                                 colorrange = (0, 1))
 
         # Add text labels with values
