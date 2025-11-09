@@ -1212,7 +1212,7 @@ println("Shapley effects for LCOE:", sh_results.sh_lcoe)
 ```
 """
 function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
-                                   construction_time_range::Union{Nothing,Vector}=nothing)
+                                   construction_time_range::Union{Nothing,Vector}=nothing, quiet::Bool=false)
 
     @info "Computing Shapley sensitivity indices with CORRECTED nested sampling (handles correlated inputs)"
 
@@ -1316,7 +1316,9 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
                 # Compute Shapley weight
                 w = shapley_weight(subset_size, d)
 
-                @info "  Coalition S=$S (size $subset_size), weight=$(round(w, digits=4))"
+                if !quiet
+                    @info "  Coalition S=$S (size $subset_size), weight=$(round(w, digits=4))"
+                end
 
                 # FIX #2 & #3: Use shared outer_base and deterministic coalition_id
                 coalition_id_S = hash(collect(S))
