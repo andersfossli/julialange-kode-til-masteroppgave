@@ -24,8 +24,10 @@ include("data.jl")
 
 ##### simulation parameters #####
 
-# number of Monte Carlo runs
-n = Int64(100000)  # PRODUCTION: 100k samples for robust estimates
+# number of Monte Carlo runs (NOTE: Shapley automatically caps base variance at 10k)
+# The Shapley function uses n_outer×n_inner for the main computation,
+# and caps base variance samples at min(n, 10000) for efficiency
+n = Int64(100000)  # Passed but capped internally to avoid wasteful base samples
 
 # wholesale electricity price [USD/MWh]
 electricity_price_mean = mean([52.2, 95.8])
