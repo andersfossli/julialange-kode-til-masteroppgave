@@ -133,7 +133,23 @@ function mcs_plot(mcs_results, title::String, ylabel::String, pjs::Union{Vector,
     mcs_boxplot = Figure();
     n = nrow(mcs_results)  # Number of Monte Carlo samples
 
-    ax_wc = Axis(mcs_boxplot[1,1], xticks = (1:length(xticks_wc), xticks_wc), ylabel = ylabel);
+    # Calculate 10-90% quantile range for y-axis limits (across all reactors)
+    all_data = Float64[]
+    for reactor_name in names(mcs_results)
+        if reactor_name in vcat(xticks_wc, xticks_ht, xticks_sf)
+            append!(all_data, mcs_results[!, reactor_name])
+        end
+    end
+    q10 = quantile(all_data, 0.10)
+    q90 = quantile(all_data, 0.90)
+    range_width = q90 - q10
+    ylim_low = q10 - 0.1 * range_width
+    ylim_high = q90 + 0.1 * range_width
+
+    ax_wc = Axis(mcs_boxplot[1,1],
+                 xticks = (1:length(xticks_wc), xticks_wc),
+                 ylabel = ylabel,
+                 limits = (nothing, nothing, ylim_low, ylim_high));
     ax_wc.xticklabelrotation = π / 3;
     ax_wc.yticklabelrotation = π / 2;
     ax_wc.xticklabelalign = (:right, :center);
@@ -144,7 +160,9 @@ function mcs_plot(mcs_results, title::String, ylabel::String, pjs::Union{Vector,
 
     Label(mcs_boxplot[1, 1, Top()], "BWR & PWR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0))
 
-    ax_ht = Axis(mcs_boxplot[1,2], xticks = (1:length(xticks_ht), xticks_ht));
+    ax_ht = Axis(mcs_boxplot[1,2],
+                 xticks = (1:length(xticks_ht), xticks_ht),
+                 limits = (nothing, nothing, ylim_low, ylim_high));
     ax_ht.xticklabelrotation = π / 3;
     ax_ht.yticklabelrotation = π / 2;
     ax_ht.xticklabelalign = (:right, :center);
@@ -155,7 +173,9 @@ function mcs_plot(mcs_results, title::String, ylabel::String, pjs::Union{Vector,
 
     Label(mcs_boxplot[1, 2, Top()], "HTR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0));
 
-    ax_sf = Axis(mcs_boxplot[1,3], xticks = (1:length(xticks_sf), xticks_sf));
+    ax_sf = Axis(mcs_boxplot[1,3],
+                 xticks = (1:length(xticks_sf), xticks_sf),
+                 limits = (nothing, nothing, ylim_low, ylim_high));
     ax_sf.xticklabelrotation = π / 3;
     ax_sf.yticklabelrotation = π / 2;
     ax_sf.xticklabelalign = (:right, :center);
