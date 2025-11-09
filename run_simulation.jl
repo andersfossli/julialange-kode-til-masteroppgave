@@ -82,7 +82,8 @@ shapley_lcoe_results = DataFrame();
 shapley_lcoe_results.var = ["wacc", "construction_time", "loadfactor", "investment"];
 
 @info("Starting Shapley sensitivity analysis for all reactors")
-@info("Expected runtime: ~5-6 hours (15 reactors × 20 min each)")
+@info("Total reactors: $(length(pjs))")
+@info("Expected runtime: ~$(round(length(pjs) * 20/60, digits=1)) hours ($(length(pjs)) reactors × ~20 min each)")
 
 # Run Shapley sensitivity analysis for all projects
 for p in eachindex(pjs)
