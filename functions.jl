@@ -1099,14 +1099,17 @@ function estimate_conditional_variance_V_S(pj::project, param_set_S::Vector{Symb
                                           opt_scaling::String, wacc::Vector,
                                           electricity_price_mean::Float64,
                                           construction_time_range::Union{Nothing,Vector},
-                                          coalition_id::UInt)
+                                          coalition_id::UInt;
+                                          quiet::Bool=false)
 
     param_names_all = [:wacc, :construction_time, :loadfactor, :investment]
     params_not_in_S = [p for p in param_names_all if !(p in param_set_S)]
     n_outer = length(outer_base)
 
-    @info "  Estimating V(S) for S=$param_set_S ($(length(param_set_S)) params fixed, $(length(params_not_in_S)) varying)"
-    @info "    n_outer=$n_outer (shared design), n_inner=$n_inner → $(n_outer * n_inner) model evaluations"
+    if !quiet
+        @info "  Estimating V(S) for S=$param_set_S ($(length(param_set_S)) params fixed, $(length(params_not_in_S)) varying)"
+        @info "    n_outer=$n_outer (shared design), n_inner=$n_inner → $(n_outer * n_inner) model evaluations"
+    end
 
     # Storage for conditional expectations
     conditional_means_npv = Float64[]
@@ -1155,7 +1158,9 @@ function estimate_conditional_variance_V_S(pj::project, param_set_S::Vector{Symb
     V_S_npv = var(conditional_means_npv, corrected=false)
     V_S_lcoe = var(conditional_means_lcoe, corrected=false)
 
-    @info "    V(S) computed: NPV=$(round(V_S_npv, sigdigits=4)), LCOE=$(round(V_S_lcoe, sigdigits=4))"
+    if !quiet
+        @info "    V(S) computed: NPV=$(round(V_S_npv, sigdigits=4)), LCOE=$(round(V_S_lcoe, sigdigits=4))"
+    end
 
     return V_S_npv, V_S_lcoe
 end
@@ -1282,7 +1287,8 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     V_empty_npv, V_empty_lcoe = estimate_conditional_variance_V_S(
         pj, Symbol[], outer_base, n_inner,
         opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, coalition_id_empty
+        construction_time_range, coalition_id_empty;
+        quiet=quiet
     )
 
     coalition_id_full = hash([:wacc, :construction_time, :loadfactor, :investment])
@@ -1290,7 +1296,8 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
         pj, [:wacc, :construction_time, :loadfactor, :investment],
         outer_base, n_inner,
         opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, coalition_id_full
+        construction_time_range, coalition_id_full;
+        quiet=quiet
     )
 
     # Use V(full) - V(empty) as normalization (not total_var from A/B)
@@ -1330,7 +1337,8 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
                 V_S_npv, V_S_lcoe = estimate_conditional_variance_V_S(
                     pj, collect(S), outer_base, n_inner,
                     opt_scaling, wacc, electricity_price_mean,
-                    construction_time_range, coalition_id_S
+                    construction_time_range, coalition_id_S;
+                    quiet=quiet
                 )
 
                 # Estimate V(S ∪ {i}) = Var(E[Y | X_S∪{i}])
@@ -1339,14 +1347,17 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
                 V_S_union_i_npv, V_S_union_i_lcoe = estimate_conditional_variance_V_S(
                     pj, S_union_i, outer_base, n_inner,
                     opt_scaling, wacc, electricity_price_mean,
-                    construction_time_range, coalition_id_union
+                    construction_time_range, coalition_id_union;
+                    quiet=quiet
                 )
 
                 # Marginal contribution: ΔV_i(S) = V(S ∪ {i}) - V(S)
                 delta_V_npv = V_S_union_i_npv - V_S_npv
                 delta_V_lcoe = V_S_union_i_lcoe - V_S_lcoe
 
-                @info "    ΔV: NPV=$(round(delta_V_npv, sigdigits=4)), LCOE=$(round(delta_V_lcoe, sigdigits=4))"
+                if !quiet
+                    @info "    ΔV: NPV=$(round(delta_V_npv, sigdigits=4)), LCOE=$(round(delta_V_lcoe, sigdigits=4))"
+                end
 
                 # Weighted contribution to Shapley value
                 shapley_npv += w * delta_V_npv
