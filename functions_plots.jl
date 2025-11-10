@@ -1551,25 +1551,26 @@ Creates a single panel showing:
 function lcoe_threshold_probability_plot_styled(lcoe_results::DataFrame, pjs::Vector;
                                                thresholds::Vector{Float64}=collect(0:10:300))
     
-    # Define color palettes by scale (hex colors)
+    # Define color palettes by scale (RGB tuples normalized to 0-1)
+    # Converted from hex: #RRGGBB -> (R/255, G/255, B/255)
     scale_palettes = Dict(
         "Micro" => [
-            parse(Colorant, "#FF6B6B"),  # Coral red
-            parse(Colorant, "#FF7B7B"),
-            parse(Colorant, "#FF8B6B"),
-            parse(Colorant, "#FF8E53")   # Orange
+            (1.0, 0.42, 0.42),  # #FF6B6B - Coral red
+            (1.0, 0.48, 0.48),  # #FF7B7B
+            (1.0, 0.55, 0.42),  # #FF8B6B
+            (1.0, 0.56, 0.33)   # #FF8E53 - Orange
         ],
         "SMR" => [
-            parse(Colorant, "#4ECDC4"),  # Cyan
-            parse(Colorant, "#4BBDC8"),
-            parse(Colorant, "#48AED0"),
-            parse(Colorant, "#44A8D8")   # Blue
+            (0.31, 0.80, 0.77),  # #4ECDC4 - Cyan
+            (0.29, 0.74, 0.78),  # #4BBDC8
+            (0.28, 0.68, 0.82),  # #48AED0
+            (0.27, 0.66, 0.85)   # #44A8D8 - Blue
         ],
         "Large" => [
-            parse(Colorant, "#95E1D3"),  # Light cyan
-            parse(Colorant, "#7FDCC8"),
-            parse(Colorant, "#66D3BC"),
-            parse(Colorant, "#48C9B0")   # Teal green
+            (0.58, 0.88, 0.83),  # #95E1D3 - Light cyan
+            (0.50, 0.86, 0.78),  # #7FDCC8
+            (0.40, 0.83, 0.74),  # #66D3BC
+            (0.28, 0.79, 0.69)   # #48C9B0 - Teal green
         ]
     )
     
