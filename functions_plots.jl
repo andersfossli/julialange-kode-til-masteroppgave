@@ -1522,3 +1522,144 @@ function learning_curve_plot(data_path::String, opt_scaling::String)
     
     return (figs[1], figs[2], figs[3])  # Return as tuple (Micro, SMR, Large)
 end
+
+"""
+    lcoe_threshold_probability_plot_styled(lcoe_results::DataFrame, pjs::Vector;
+                                          thresholds::Vector{Float64}=collect(0:10:300))
+
+Create a styled LCOE threshold probability plot showing individual reactor curves.
+
+# Arguments
+- `lcoe_results`: DataFrame with LCOE simulation results (columns = reactor names)
+- `pjs`: Vector of project objects containing reactor metadata
+- `thresholds`: Vector of LCOE thresholds to evaluate (default: 0-300 USD/MWh)
+
+# Returns
+- Figure with individual reactor probability curves colored by scale
+
+Creates a single panel showing:
+- All individual reactor probability curves
+- Color palettes by scale (with gradients for visual separation):
+  * Micro: orange/coral tones (#FF6B6B to #FF8E53)
+  * SMR: blue/cyan tones (#4ECDC4 to #44A8D8)
+  * Large: green/cyan tones (#95E1D3 to #48C9B0)
+- 50% probability reference line (dashed gray)
+- Grouped legend by scale with reactor counts
+- Transparent lines (alpha=0.7) for better overlapping visibility
+- High resolution (1400x800) for thesis quality
+"""
+function lcoe_threshold_probability_plot_styled(lcoe_results::DataFrame, pjs::Vector;
+                                               thresholds::Vector{Float64}=collect(0:10:300))
+    
+    # Define color palettes by scale (hex colors)
+    scale_palettes = Dict(
+        "Micro" => [
+            parse(Colorant, "#FF6B6B"),  # Coral red
+            parse(Colorant, "#FF7B7B"),
+            parse(Colorant, "#FF8B6B"),
+            parse(Colorant, "#FF8E53")   # Orange
+        ],
+        "SMR" => [
+            parse(Colorant, "#4ECDC4"),  # Cyan
+            parse(Colorant, "#4BBDC8"),
+            parse(Colorant, "#48AED0"),
+            parse(Colorant, "#44A8D8")   # Blue
+        ],
+        "Large" => [
+            parse(Colorant, "#95E1D3"),  # Light cyan
+            parse(Colorant, "#7FDCC8"),
+            parse(Colorant, "#66D3BC"),
+            parse(Colorant, "#48C9B0")   # Teal green
+        ]
+    )
+    
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => String[], "SMR" => String[], "Large" => String[])
+    
+    for pj in pjs
+        if haskey(scale_groups, pj.scale) && (pj.name in names(lcoe_results))
+            push!(scale_groups[pj.scale], pj.name)
+        end
+    end
+    
+    # Create figure with thesis-quality resolution
+    fig = Figure(size = (1400, 800))
+    
+    ax = Axis(fig[1, 1],
+              xlabel = "LCOE Threshold [USD/MWh]",
+              ylabel = "Probability of Exceeding Threshold [%]",
+              xlabelsize = 16,
+              ylabelsize = 16,
+              xticklabelsize = 14,
+              yticklabelsize = 14)
+    
+    # Enable grid with subtle styling
+    ax.xgridvisible = true
+    ax.ygridvisible = true
+    ax.xgridcolor = (:gray, 0.3)
+    ax.ygridcolor = (:gray, 0.3)
+    ax.xgridwidth = 0.5
+    ax.ygridwidth = 0.5
+    
+    scale_order = ["Micro", "SMR", "Large"]
+    legend_elements = []
+    legend_labels = String[]
+    
+    # Plot individual reactor curves
+    for scale in scale_order
+        reactors = scale_groups[scale]
+        
+        if isempty(reactors)
+            continue
+        end
+        
+        n_reactors = length(reactors)
+        palette = scale_palettes[scale]
+        
+        # Generate colors for this scale (interpolate if needed)
+        if n_reactors <= length(palette)
+            colors = palette[1:n_reactors]
+        else
+            # Interpolate colors if more reactors than palette colors
+            colors = [palette[max(1, min(length(palette), floor(Int, (i-1)/(n_reactors-1) * (length(palette)-1)) + 1))] 
+                     for i in 1:n_reactors]
+        end
+        
+        # Plot each reactor
+        for (idx, reactor) in enumerate(reactors)
+            lcoe_data = lcoe_results[!, reactor]
+            
+            # Calculate probabilities: P(LCOE > threshold)
+            n_total = length(lcoe_data)
+            probabilities = [sum(lcoe_data .> t) / n_total * 100 for t in thresholds]
+            
+            # Plot line with transparency
+            lines!(ax, thresholds, probabilities,
+                   color = (colors[idx], 0.7),
+                   linewidth = 2.5)
+        end
+        
+        # Add single legend entry per scale (use first color)
+        dummy_line = lines!(ax, [NaN], [NaN],
+                           color = (palette[1], 0.7),
+                           linewidth = 3)
+        push!(legend_elements, dummy_line)
+        push!(legend_labels, "$scale (n=$n_reactors)")
+    end
+    
+    # Add 50% probability reference line
+    hlines!(ax, [50.0],
+            color = :gray,
+            linestyle = :dash,
+            linewidth = 2,
+            label = "50% threshold")
+    
+    # Add legend with scale grouping
+    Legend(fig[1, 2],
+           legend_elements,
+           legend_labels,
+           framevisible = true,
+           labelsize = 14)
+    
+    return fig
+end

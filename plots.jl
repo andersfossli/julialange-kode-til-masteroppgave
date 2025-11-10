@@ -388,6 +388,13 @@ lcoe_thresholds = collect(0.0:20.0:300.0)  # Float64 values required
 fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
 
+# Styled version with individual reactor curves
+@info("Generating styled LCOE threshold probability plot (individual reactors)")
+lcoe_thresholds_fine = collect(0.0:10.0:300.0)  # Finer resolution for smoother curves
+fig_lcoe_threshold_styled = Base.invokelatest(lcoe_threshold_probability_plot_styled, lcoe_results, pjs; thresholds=lcoe_thresholds_fine)
+save("$outputpath/fig-lcoe_threshold_probability_styled-$opt_scaling.pdf", fig_lcoe_threshold_styled);
+@info("  - fig-lcoe_threshold_probability_styled-$opt_scaling.pdf")
+
 ##### Regional comparison plots #####
 # Compare LCOE distributions across regions
 # Shows both full dataset and Large reactor specific comparisons
