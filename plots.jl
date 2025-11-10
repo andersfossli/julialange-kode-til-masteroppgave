@@ -373,6 +373,16 @@ Label(fig_lcoe_comparison[1, 1, Top()], "LCOE Comparison",
 
 fig_lcoe_comparison
 save("$outputpath/fig-lcoe_comparison-$opt_scaling.pdf", fig_lcoe_comparison)
+
+##### LCOE comparison plot from MCS (percentiles) #####
+# Shows P10-P90 and P25-P75 ranges from full Monte Carlo simulation
+# Includes Large reactor cost overrun uncertainty
+
+@info("Generating MCS-based LCOE comparison plot (with uncertainty bands)")
+fig_lcoe_comparison_mcs = Base.invokelatest(lcoe_comparison_from_mcs, lcoe_results, pjs; opt_scaling=opt_scaling)
+save("$outputpath/fig-lcoe_comparison_mcs-$opt_scaling.pdf", fig_lcoe_comparison_mcs)
+@info("  - fig-lcoe_comparison_mcs-$opt_scaling.pdf")
+
 ##### LCOE histogram grouped by scale (Micro/SMR/Large) #####
 # requires lcoe_results from simulation and pjs vector
 

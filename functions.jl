@@ -331,12 +331,22 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
     # generation of uniformly distributed random project specific variables
         # scaling case distinction
             # Note that the scaling parameter here are converted such that Rothwell and Roulstone coincide.
-            # Special handling for Large reactors: use face value, no scaling
+            # Special handling for Large reactors: use face value with cost overrun multiplier
             if pj.scale == "Large"
-                @info("Large reactor detected: using face value (no scaling applied)")
-                # For large reactors, use manufacturer estimates directly (no scaling)
-                # This keeps large reactor costs at their empirical values
-                rand_investment = pj.investment * pj.plant_capacity * ones(n) * soak_factor
+                @info("Large reactor detected: applying cost overrun multiplier (no scaling)")
+                # Cost overrun multiplier based on historical nuclear construction
+                # References: INL/RPT-23-72972, Grubler (2010), Lovering et al. (2016)
+                # Mode at 1.35 reflects typical ~35% manufacturer underestimation
+                # Range [0.8, 3.0]: Best case (Korean APR1400) to worst case (Flamanville, Vogtle)
+                overrun_dist = TriangularDist(0.8, 3.0, 1.35)
+                rand_overrun = rand(overrun_dist, n)
+
+                # Base investment (manufacturer estimate) multiplied by overrun factor
+                rand_investment = pj.investment * pj.plant_capacity * rand_overrun * soak_factor
+
+                @info("  Overrun range: [0.8, 3.0], mode=1.35")
+                @info("  Mean multiplier: $(round(mean(rand_overrun), digits=2))")
+                @info("  Median multiplier: $(round(median(rand_overrun), digits=2))")
             elseif opt_scaling == "manufacturer"
                 @info("using manufacturer estimates")
                 # deterministic investment cost based on manufacturer estimates [USD]

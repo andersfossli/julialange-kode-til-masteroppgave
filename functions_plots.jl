@@ -1664,3 +1664,165 @@ function lcoe_threshold_probability_plot_styled(lcoe_results::DataFrame, pjs::Ve
     
     return fig
 end
+
+"""
+    lcoe_comparison_from_mcs(lcoe_results::DataFrame, pjs::Vector; opt_scaling::String="rothwell")
+
+Create LCOE comparison plot sourced directly from Monte Carlo simulation results.
+
+This replaces the deterministic calculation approach with percentiles from the 
+full MCS that includes:
+- Investment cost uncertainty (including Large reactor overrun multiplier)
+- WACC uncertainty [0.04, 0.10]
+- Construction time uncertainty (scale-specific ranges)
+- Load factor uncertainty (reactor-type-specific ranges)
+
+# Arguments
+- `lcoe_results`: DataFrame with LCOE MCS results (columns = reactor names)
+- `pjs`: Vector of project objects containing reactor metadata
+- `opt_scaling`: Scaling method name for labeling
+
+# Returns
+- Figure with percentile ranges for each reactor overlaid with Lazard data
+
+Creates horizontal range plot showing:
+- P10-P90 range (light gray, wide band)
+- P25-P75 range (IQR, darker gray band)
+- P50 median (black vertical line marker)
+- Grouped by scale (Micro, SMR, Large)
+- Overlaid with Lazard renewable/conventional energy LCOE ranges
+"""
+function lcoe_comparison_from_mcs(lcoe_results::DataFrame, pjs::Vector;
+                                   opt_scaling::String="rothwell")
+    
+    # Load external LCOE data (Lazard 2023 benchmarks)
+    inputpath = "_input"
+    lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
+    
+    # Group reactors by scale
+    scale_groups = Dict("Micro" => String[], "SMR" => String[], "Large" => String[])
+    
+    for pj in pjs
+        if haskey(scale_groups, pj.scale) && (pj.name in names(lcoe_results))
+            push!(scale_groups[pj.scale], pj.name)
+        end
+    end
+    
+    # Calculate percentiles for each reactor
+    lcoe_stats = DataFrame(
+        reactor = String[],
+        scale = String[],
+        p10 = Float64[],
+        p25 = Float64[],
+        p50 = Float64[],
+        p75 = Float64[],
+        p90 = Float64[]
+    )
+    
+    scale_order = ["Micro", "SMR", "Large"]
+    
+    for scale in scale_order
+        reactors = get(scale_groups, scale, String[])
+        for reactor in reactors
+            data = lcoe_results[!, reactor]
+            push!(lcoe_stats, (
+                reactor = reactor,
+                scale = scale,
+                p10 = quantile(data, 0.10),
+                p25 = quantile(data, 0.25),
+                p50 = quantile(data, 0.50),
+                p75 = quantile(data, 0.75),
+                p90 = quantile(data, 0.90)
+            ))
+        end
+    end
+    
+    # Create figure
+    fig = Figure(size=(1400, 1000))
+    ax = Axis(fig[1,1],
+             xlabel = "LCOE [USD/MWh]",
+             xscale = log10,
+             ylabel = "Technology",
+             xlabelsize = 16,
+             ylabelsize = 16)
+    
+    xlims!(ax, 10, 25000)
+    
+    # Build y-axis positions and labels
+    y_pos = 1
+    ytick_labels = String[]
+    ytick_positions = Int[]
+    
+    # Color scheme by scale (same as other plots)
+    scale_colors = Dict(
+        "Micro" => (1.0, 0.42, 0.42),  # Orange/coral
+        "SMR" => (0.31, 0.80, 0.77),   # Cyan/blue
+        "Large" => (0.58, 0.88, 0.83)  # Light cyan/teal
+    )
+    
+    # Plot reactor data (grouped by scale)
+    for scale in ["Large", "SMR", "Micro"]  # Reverse order (top to bottom)
+        scale_data = filter(row -> row.scale == scale, lcoe_stats)
+        
+        if nrow(scale_data) == 0
+            continue
+        end
+        
+        scale_color = get(scale_colors, scale, (:gray, 0.5))
+        
+        for row in eachrow(scale_data)
+            # P10-P90 range (wide transparent band)
+            rangebars!(ax, [y_pos], [row.p10], [row.p90],
+                      color=(scale_color, 0.3), linewidth=16,
+                      whiskerwidth=10, direction=:x)
+            
+            # P25-P75 range (IQR, darker)
+            rangebars!(ax, [y_pos], [row.p25], [row.p75],
+                      color=(scale_color, 0.6), linewidth=16,
+                      whiskerwidth=10, direction=:x)
+            
+            # Median (vertical line marker)
+            scatter!(ax, [row.p50], [y_pos],
+                    color=:black, marker=:vline,
+                    markersize=24, strokewidth=2)
+            
+            push!(ytick_labels, row.reactor)
+            push!(ytick_positions, y_pos)
+            y_pos += 1
+        end
+        
+        # Add dividing line between scales
+        y_pos += 0.5
+    end
+    
+    # Add Lazard renewable/conventional energy ranges
+    renewable_start_y = y_pos
+    
+    for row in eachrow(lcoe_dat)
+        rangebars!(ax, [y_pos], [row.lower_bound], [row.upper_bound],
+                  color=(:darkblue, 0.5), linewidth=16,
+                  whiskerwidth=10, direction=:x)
+        
+        push!(ytick_labels, row.technology)
+        push!(ytick_positions, y_pos)
+        y_pos += 1
+    end
+    
+    ax.yticks = (ytick_positions, ytick_labels)
+    ax.yticklabelsize = 11
+    ax.xgridvisible = true
+    ax.ygridvisible = false
+    
+    # Add dividing lines
+    n_reactors = nrow(lcoe_stats)
+    hlines!(ax, [n_reactors + 0.75], color=:red, linestyle=:dash, linewidth=2)
+    
+    # Add title and caption
+    Label(fig[0, :], "LCOE Comparison: Monte Carlo Simulation vs Benchmarks ($opt_scaling scaling)",
+          fontsize=18, font="Noto Sans Bold")
+    
+    Label(fig[2, :], "Nuclear bands: 10th-90th (light) and 25th-75th (dark) percentiles from MCS (1M samples). Black line = median. Benchmark data: Lazard LCOE 2023.",
+          fontsize=11)
+    
+    return fig
+end
