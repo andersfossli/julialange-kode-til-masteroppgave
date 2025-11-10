@@ -83,7 +83,7 @@ floor_m = nothing  # Unlimited learning (no floor)
 
 @info("Starting learning curve analysis")
 @info("Reactors: $(length(pjs))")
-@info("Scenarios per reactor: $(length(N_units) × length(learning_rates))")
+@info("Scenarios per reactor: $(length(N_units) * length(learning_rates))")
 @info("Samples per scenario: $n")
 @info("Total simulations: $(n * length(pjs) * length(N_units) * length(learning_rates))")
 
@@ -119,6 +119,7 @@ for (pj_idx, pj) in enumerate(pjs)
 
     for N in N_units
         for LR in learning_rates
+            global scenario_count
             scenario_count += 1
             elapsed = time() - start_time
             avg_time_per_scenario = scenario_count > 1 ? elapsed / (scenario_count - 1) : 0
