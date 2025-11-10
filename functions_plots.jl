@@ -1790,19 +1790,17 @@ function lcoe_comparison_from_mcs(lcoe_results::DataFrame, pjs::Vector;
             push!(ytick_positions, y_pos)
             y_pos += 1
         end
-        
-        # Add dividing line between scales
-        y_pos += 0.5
+
+        # Add spacing between scales (skip a row)
+        y_pos += 1
     end
-    
+
     # Add Lazard renewable/conventional energy ranges
-    renewable_start_y = y_pos
-    
     for row in eachrow(lcoe_dat)
         rangebars!(ax, [y_pos], [row.lower_bound], [row.upper_bound],
                   color=(:darkblue, 0.5), linewidth=16,
                   whiskerwidth=10, direction=:x)
-        
+
         push!(ytick_labels, row.technology)
         push!(ytick_positions, y_pos)
         y_pos += 1
