@@ -1626,13 +1626,6 @@ function lcoe_threshold_probability_plot_styled(lcoe_results::DataFrame, pjs::Ve
                      for i in 1:n_reactors]
         end
 
-        # Add scale header to legend (as a dummy invisible line)
-        if !isempty(legend_labels)
-            # Add spacing between scales
-            push!(legend_elements, lines!(ax, [NaN], [NaN], color = :transparent, linewidth = 0))
-            push!(legend_labels, "")
-        end
-
         # Plot each reactor and add to legend
         for (idx, reactor) in enumerate(reactors)
             lcoe_data = lcoe_results[!, reactor]
