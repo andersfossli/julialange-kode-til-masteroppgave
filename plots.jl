@@ -503,6 +503,36 @@ fig_wacc_sensitivity = Base.invokelatest(
 save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
 @info("WACC sensitivity plot saved (0 new simulations, used existing data)")
 
+##### Learning Curve Analysis Plots #####
+# Shows LCOE vs cumulative units (N) for different learning rates
+# Requires learning curve data from run_4_learning.jl
+
+@info("Generating learning curve plots")
+
+try
+    learning_figs = Base.invokelatest(learning_curve_plot, outputpath, opt_scaling)
+
+    if !isnothing(learning_figs[1])
+        save("$outputpath/fig-learning_curves_micro-$opt_scaling.pdf", learning_figs[1])
+        @info("  - fig-learning_curves_micro-$opt_scaling.pdf")
+    end
+
+    if !isnothing(learning_figs[2])
+        save("$outputpath/fig-learning_curves_smr-$opt_scaling.pdf", learning_figs[2])
+        @info("  - fig-learning_curves_smr-$opt_scaling.pdf")
+    end
+
+    if !isnothing(learning_figs[3])
+        save("$outputpath/fig-learning_curves_large-$opt_scaling.pdf", learning_figs[3])
+        @info("  - fig-learning_curves_large-$opt_scaling.pdf")
+    end
+
+    @info("Learning curve plots saved")
+catch e
+    @warn("Could not generate learning curve plots: $e")
+    @warn("Run run_4_learning.jl first to generate learning curve data")
+end
+
 ##### OCC vs Year plot (Large reactors only) #####
 # Shows Western vs Asian reactors with linear trend lines
 
