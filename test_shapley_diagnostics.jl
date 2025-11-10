@@ -62,7 +62,7 @@ println("  NPV:  $(round(total_var_npv, sigdigits=6))")
 println("  LCOE: $(round(total_var_lcoe, sigdigits=6))")
 
 # Diagnostic parameters
-n_outer = 30
+n_outer = 50
 n_inner = 100
 
 # SEED GLOBAL RNG for reproducibility
