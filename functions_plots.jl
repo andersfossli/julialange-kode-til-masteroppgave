@@ -1609,58 +1609,65 @@ function lcoe_threshold_probability_plot_styled(lcoe_results::DataFrame, pjs::Ve
     # Plot individual reactor curves
     for scale in scale_order
         reactors = scale_groups[scale]
-        
+
         if isempty(reactors)
             continue
         end
-        
+
         n_reactors = length(reactors)
         palette = scale_palettes[scale]
-        
+
         # Generate colors for this scale (interpolate if needed)
         if n_reactors <= length(palette)
             colors = palette[1:n_reactors]
         else
             # Interpolate colors if more reactors than palette colors
-            colors = [palette[max(1, min(length(palette), floor(Int, (i-1)/(n_reactors-1) * (length(palette)-1)) + 1))] 
+            colors = [palette[max(1, min(length(palette), floor(Int, (i-1)/(n_reactors-1) * (length(palette)-1)) + 1))]
                      for i in 1:n_reactors]
         end
-        
-        # Plot each reactor
+
+        # Add scale header to legend (as a dummy invisible line)
+        if !isempty(legend_labels)
+            # Add spacing between scales
+            push!(legend_elements, lines!(ax, [NaN], [NaN], color = :transparent, linewidth = 0))
+            push!(legend_labels, "")
+        end
+
+        # Plot each reactor and add to legend
         for (idx, reactor) in enumerate(reactors)
             lcoe_data = lcoe_results[!, reactor]
-            
+
             # Calculate probabilities: P(LCOE > threshold)
             n_total = length(lcoe_data)
             probabilities = [sum(lcoe_data .> t) / n_total * 100 for t in thresholds]
-            
-            # Plot line with transparency
-            lines!(ax, thresholds, probabilities,
-                   color = (colors[idx], 0.7),
-                   linewidth = 2.5)
+
+            # Plot line with transparency and save for legend
+            line = lines!(ax, thresholds, probabilities,
+                         color = (colors[idx], 0.7),
+                         linewidth = 2.5)
+
+            # Add to legend
+            push!(legend_elements, line)
+            push!(legend_labels, reactor)
         end
-        
-        # Add single legend entry per scale (use first color)
-        dummy_line = lines!(ax, [NaN], [NaN],
-                           color = (palette[1], 0.7),
-                           linewidth = 3)
-        push!(legend_elements, dummy_line)
-        push!(legend_labels, "$scale (n=$n_reactors)")
     end
-    
+
     # Add 50% probability reference line
     hlines!(ax, [50.0],
             color = :gray,
             linestyle = :dash,
             linewidth = 2,
             label = "50% threshold")
-    
-    # Add legend with scale grouping
+
+    # Add legend with individual reactor names (2 columns for better space usage)
     Legend(fig[1, 2],
            legend_elements,
            legend_labels,
            framevisible = true,
-           labelsize = 14)
+           labelsize = 11,
+           nbanks = 2,  # Two columns for 25 reactors
+           titlesize = 13,
+           patchsize = (25, 15))  # Adjust patch size for better visibility
     
     return fig
 end
