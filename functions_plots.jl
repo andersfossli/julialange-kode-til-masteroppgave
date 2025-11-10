@@ -1388,3 +1388,137 @@ function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_center
 
     return fig
 end
+
+"""
+    learning_curve_plot(data_path::String, opt_scaling::String)
+
+Create learning curve plots showing LCOE vs cumulative units (N) for different learning rates.
+
+# Arguments
+- `data_path`: Path to directory containing learning curve CSV data
+- `opt_scaling`: Scaling method used (e.g., "rothwell", "roulstone")
+
+# Returns
+- Tuple of 3 Figure objects: (Micro, SMR, Large) learning curve plots
+
+Each plot shows:
+- X-axis: Cumulative units (N)
+- Y-axis: LCOE [USD/MWh]
+- Lines: One per reactor × learning rate combination
+- Shaded bands: P10-P90 uncertainty ranges
+- Colors: By reactor type (PWR/BWR=orangered, HTR=gold, SFR=teal)
+"""
+function learning_curve_plot(data_path::String, opt_scaling::String)
+    
+    @info("Generating learning curve plots")
+    
+    # Load learning results
+    csv_file = "$data_path/learning-lcoe_curves-$opt_scaling.csv"
+    if !isfile(csv_file)
+        @warn("Learning curve data not found: $csv_file")
+        @warn("Run run_4_learning.jl first to generate learning curve data")
+        return (nothing, nothing, nothing)
+    end
+    
+    df = CSV.read(csv_file, DataFrame)
+    
+    # Define scales and learning rate labels
+    scales = ["Micro", "SMR", "Large"]
+    lr_labels = Dict(0.05 => "Pessimistic (5%)", 0.10 => "Base (10%)", 0.15 => "Optimistic (15%)")
+    lr_colors = Dict(0.05 => :red, 0.10 => :blue, 0.15 => :green)
+    
+    # Color scheme by reactor type
+    type_colors = Dict("PWR" => :orangered, "BWR" => :orangered, "HTR" => :gold, "SFR" => :teal)
+    
+    figs = []
+    
+    for scale in scales
+        @info("  Creating learning curve for $scale reactors")
+        
+        df_scale = filter(row -> row.scale == scale, df)
+        
+        if nrow(df_scale) == 0
+            @warn("No data for $scale scale, skipping")
+            push!(figs, nothing)
+            continue
+        end
+        
+        fig = Figure(size=(1400, 900))
+        
+        # Get unique reactors for this scale
+        reactors = unique(df_scale.reactor)
+        
+        # Determine grid layout based on number of reactors
+        n_reactors = length(reactors)
+        n_cols = min(3, n_reactors)  # Max 3 columns
+        n_rows = ceil(Int, n_reactors / n_cols)
+        
+        for (reactor_idx, reactor) in enumerate(reactors)
+            df_reactor = filter(row -> row.reactor == reactor, df_scale)
+            
+            # Calculate subplot position
+            row_idx = div(reactor_idx - 1, n_cols) + 1
+            col_idx = mod(reactor_idx - 1, n_cols) + 1
+            
+            # Create axis for this reactor
+            ax = Axis(fig[row_idx, col_idx],
+                xlabel = "Cumulative Units (N)",
+                ylabel = "LCOE [USD/MWh]",
+                title = reactor)
+            
+            # Get reactor type for coloring
+            reactor_type = first(df_reactor.type)
+            base_color = get(type_colors, reactor_type, :gray)
+            
+            # Plot each learning rate
+            for (lr_idx, LR) in enumerate([0.05, 0.10, 0.15])
+                df_lr = filter(row -> row.LR == LR, df_reactor)
+                
+                if nrow(df_lr) == 0
+                    continue
+                end
+                
+                # Sort by N_unit
+                sort!(df_lr, :N_unit)
+                
+                # Adjust line style and opacity by learning rate
+                line_alpha = lr_idx == 2 ? 1.0 : 0.7  # Base case (10%) most prominent
+                line_width = lr_idx == 2 ? 3 : 2
+                
+                # Plot median line
+                lines!(ax, df_lr.N_unit, df_lr.LCOE_median,
+                    label = lr_labels[LR],
+                    color = (base_color, line_alpha),
+                    linewidth = line_width)
+                
+                # Add uncertainty band (P10-P90)
+                band!(ax, df_lr.N_unit, df_lr.LCOE_p10, df_lr.LCOE_p90,
+                    color = (base_color, 0.15))
+                
+                # Add markers at key points
+                scatter!(ax, df_lr.N_unit, df_lr.LCOE_median,
+                    color = (base_color, line_alpha),
+                    markersize = 6)
+            end
+            
+            # Add legend to first subplot only
+            if reactor_idx == 1
+                axislegend(ax, position=:rt, framevisible=true)
+            end
+            
+            # Enable grid
+            ax.xgridvisible = true
+            ax.ygridvisible = true
+        end
+        
+        # Add overall title
+        Label(fig[0, :], "Learning Curves: $scale Reactors ($opt_scaling scaling)",
+              fontsize = 20, font = "Noto Sans Bold")
+        
+        push!(figs, fig)
+    end
+    
+    @info("Learning curve plots generated")
+    
+    return (figs[1], figs[2], figs[3])  # Return as tuple (Micro, SMR, Large)
+end
