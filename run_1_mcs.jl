@@ -35,19 +35,19 @@ wacc = [0.04, 0.10]
 
 # construction time ranges by scale [years]
 construction_time_ranges = Dict(
-    "Micro" => [3, 7],   # Unproven technology → wider range (3-7 years)
-    "SMR"   => [3, 7],   # Unproven technology → wider range (3-7 years)
-    "Large" => [5, 12]   # Historical data: Korea 5-6 yrs, US/Europe 7-12 yrs
+    "Micro" => [3, 8],   # Thesis: 3-8 years, triangular mode 5
+    "SMR"   => [3, 8],   # Thesis: 3-8 years, triangular mode 5
+    "Large" => [5, 13]   # Thesis: 5-13 years, triangular mode 8
 )
 
-# scaling parameter
-scaling = [0.20, 0.75]
+# scaling parameter (thesis: uniform distribution)
+scaling = [0.4, 0.7]
 
 # scaling options: 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
 opts_scaling = ["manufacturer", "roulstone", "rothwell", "uniform", "carelli"]
 
 # CONFIGURATION: Select scaling method
-local_scaling_index = 3  # 3 = rothwell
+local_scaling_index = 2  # 2 = roulstone (thesis default)
 
 # choose scaling option
 if @isdefined(par_job) == true

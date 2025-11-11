@@ -293,11 +293,19 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
 
     # Generate correlated WACC and construction_time using Gaussian copula
     if !isnothing(construction_time_range)
-        # Mode for triangular distributions (can be parameterized later)
-        wacc_mode = mean(wacc)  # Mode at midpoint
-        ct_mode = mean(construction_time_range)  # Mode at midpoint
+        # Mode for triangular distributions (thesis parameters)
+        wacc_mode = 0.07  # Thesis: WACC mode at 7%
+
+        # Construction time mode depends on reactor scale (thesis parameters)
+        if pj.scale == "Large"
+            ct_mode = 8.0  # Thesis: Large reactors mode at 8 years
+        else
+            ct_mode = 5.0  # Thesis: Micro/SMR reactors mode at 5 years
+        end
 
         @info("Generating correlated samples: WACC × construction_time (ρ=0.4)")
+        @info("  WACC: [$(wacc[1]), $(wacc[2])], mode=$(wacc_mode)")
+        @info("  Construction time: [$(construction_time_range[1]), $(construction_time_range[2])], mode=$(ct_mode)")
         rand_wacc, rand_construction_time_float = generate_correlated_samples(
             n, wacc, construction_time_range;
             ρ=0.4, wacc_mode=wacc_mode, ct_mode=ct_mode
@@ -314,7 +322,8 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
         end
     else
         # Fallback: independent triangular sampling if no CT range
-        wacc_dist = TriangularDist(wacc[1], wacc[2], mean(wacc))
+        wacc_mode = 0.07  # Thesis: WACC mode at 7%
+        wacc_dist = TriangularDist(wacc[1], wacc[2], wacc_mode)
         rand_wacc = rand(wacc_dist, n)
         rand_construction_time = fill(Int(pj.time[1]), n)
     end
@@ -322,10 +331,16 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
     # Electricity price is now fixed at mean (doesn't affect LCOE calculation)
     rand_electricity_price = fill(electricity_price_mean, n, total_time)
 
-    # Generate loadfactor using triangular distribution
-    # Mode at 60th percentile (slightly optimistic but realistic for planned operations)
-    lf_mode = pj.loadfactor[1] + 0.6 * (pj.loadfactor[2] - pj.loadfactor[1])
-    lf_dist = TriangularDist(pj.loadfactor[1], pj.loadfactor[2], lf_mode)
+    # Generate loadfactor using triangular distribution (thesis parameters)
+    # Triangular distribution ±15% around mean, capped at 95%
+    lf_mean = mean(pj.loadfactor)  # Mean of reactor-type-specific range
+    lf_min = lf_mean - 0.15  # Lower bound: mean - 15%
+    lf_max = min(lf_mean + 0.15, 0.95)  # Upper bound: mean + 15%, capped at 95%
+    lf_mode = lf_mean  # Mode at mean value
+
+    @info("Load factor distribution: min=$(round(lf_min, digits=3)), mode=$(round(lf_mode, digits=3)), max=$(round(lf_max, digits=3))")
+
+    lf_dist = TriangularDist(lf_min, lf_max, lf_mode)
     rand_loadfactor = rand(lf_dist, n, total_time)
     
     # generation of uniformly distributed random project specific variables
