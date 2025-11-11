@@ -13,19 +13,10 @@ include("functions.jl")
 include("functions_plots.jl")
 include("data.jl")
 
+##### Configuration: Load centralized settings #####
+include("config.jl")
+
 ##### Load results from CSV files #####
-
-# Configuration: Select scaling method
-opts_scaling = ["manufacturer", "roulstone", "rothwell", "uniform", "carelli"]
-local_scaling_index = 3  # 3 = rothwell
-
-if @isdefined(par_job) == true
-    opt_scaling = opts_scaling[par_job]
-    @info("Cluster job mode: using scaling option $opt_scaling")
-else
-    opt_scaling = opts_scaling[local_scaling_index]
-    @info("Interactive mode: using scaling option $opt_scaling")
-end
 
 @info("Loading results from _output/ directory for scaling: $opt_scaling")
 
