@@ -1,13 +1,12 @@
 technology;lower_bound;upper_bound;source
-PV (rooftop/residential);147;221;LAZARD LCOE 15.0
-PV (rooftop/commercial & industrial);67;180;LAZARD LCOE 15.0
-PV (rooftop/community);59;91;LAZARD LCOE 15.0
-PV (utility scale/crystalline);30;41;LAZARD LCOE 15.0
-PV (utility scale/thin film);28;37;LAZARD LCOE 15.0
-Solar Thermal (w/ storage);126;156;LAZARD LCOE 15.0
-Geothermal;56;93;LAZARD LCOE 15.0
-Wind;26;50;LAZARD LCOE 15.0
-Gas (peaking);151;196;LAZARD LCOE 15.0
-Nuclear;131;204;LAZARD LCOE 15.0
-Coal;65;152;LAZARD LCOE 15.0
-Gas (combined cycle);45;74;LAZARD LCOE 15.0
+PV (community, commercial & industrial);81;217;LAZARD LCOE 18.0
+PV (utility);38;78;LAZARD LCOE 18.0
+PV (w/storage);50;131;LAZARD LCOE 18.0
+Geothermal;66;109;LAZARD LCOE 18.0
+Wind-Onshore;37;86;LAZARD LCOE 18.0
+Wind-Offshore;70;157;LAZARD LCOE 18.0
+Wind-Storage-Onshore;44;123;LAZARD LCOE 18.0
+Gas-Peaking (New Build);149;251;LAZARD LCOE 18.0
+Nuclear (New Build);141;220;LAZARD LCOE 18.0
+Coal (New Build);71;173;LAZARD LCOE 18.0
+Gas-CombinedCycle (NewBuild);45;74;LAZARD LCOE 18.0
