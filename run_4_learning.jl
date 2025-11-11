@@ -45,19 +45,9 @@ construction_time_ranges = Dict(
 # scaling parameter
 scaling = [0.4, 0.7]  # Thesis: uniform distribution
 
-# scaling options: 1=manufacturer, 2=roulstone, 3=rothwell, 4=uniform, 5=carelli
-opts_scaling = ["manufacturer", "roulstone", "rothwell", "uniform", "carelli"]
+##### Configuration: Load centralized settings #####
+include("config.jl")
 
-# CONFIGURATION: Select scaling method
-local_scaling_index = 2  # 2 = roulstone (thesis default) (change to 2 for roulstone)
-
-# choose scaling option
-if @isdefined(par_job) == true
-    opt_scaling = opts_scaling[par_job]
-    @info("Cluster job mode: using scaling option $opt_scaling (index $par_job)")
-else
-    opt_scaling = opts_scaling[local_scaling_index]
-    @info("Interactive mode: using scaling option $opt_scaling (index $local_scaling_index)")
 end
 
 ##### LEARNING CURVE PARAMETERS #####
