@@ -143,8 +143,8 @@ save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison
 ##### boxplots Monte Carlo simulation results #####
 # Now includes Large, SMR, and Micro reactors grouped by type (PWR/BWR, HTR, SFR)
 
-fig_mcs_npv = mcs_plot(npv_results, "NPV", "[USD/MW]", pjs)
-fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[USD/MWh]", pjs)
+fig_mcs_npv = mcs_plot(npv_results, "NPV", "[EUR2025/MW]", pjs)
+fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[EUR2025/MWh]", pjs)
 
 save("$outputpath/fig-mcs_npv-$opt_scaling.pdf", fig_mcs_npv);
 save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
@@ -275,15 +275,15 @@ else
     opt_scaling
 end
 
-xlabel = "[USD/MWh]"
+xlabel = "[EUR2025/MWh]"
 yticks = lcoe_plot_data[!,:technology]
 
 # Color scheme with reactor type variation
-# Renewables (rows 1-8): purple
-# Conventionals (rows 9-12): dark blue
+# Renewables (rows 1-7): purple (PV×3, Geothermal, Wind×3)
+# Conventionals (rows 8-11): dark blue (Gas-Peaking, Nuclear, Coal, Gas-CC)
 # Nuclear reactors: color by type (SFR=teal, HTR=yellow, PWR/BWR=orangered)
 n_external = nrow(lcoe_dat)
-n_renewables = 8
+n_renewables = 7  # Fixed: 7 renewable technologies in CSV
 n_conventionals = n_external - n_renewables  # Should be 4
 
 # Define color mapping by reactor type
@@ -319,30 +319,30 @@ xlims!(10, 25000)
 rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!,:lower_bound], lcoe_plot_data[!,:upper_bound],
            linewidth = 6, whiskerwidth = 8, direction = :x, color = col)
 
-# Dividing lines (4 red dashed lines)
-# Line 1: Between renewables and conventionals (after row 8)
-renewables_end = 8
-# Line 2: Between conventionals and SMR (after row 12 = all LAZARD data)
-conventionals_end = n_external  # Should be 12
+# Dividing lines (4 red/orange dashed lines)
+# Line 1: Between renewables and conventionals (after row 7)
+renewables_end = 7  # Fixed: 7 renewable technologies
+# Line 2: Between conventionals and SMR (after row 11 = all LAZARD data)
+conventionals_end = n_external  # Should be 11
 # Line 3: Between SMR and Micro (after 3 SMR rows)
-smr_end = n_external + 3  # Row 15
+smr_end = n_external + 3  # Row 14
 # Line 4: Between Micro and Large (after 3 Micro rows)
-micro_end = n_external + 6  # Row 18
+micro_end = n_external + 6  # Row 17
 
 hlines!(ax_lcoe, [renewables_end + 0.5, conventionals_end + 0.5, smr_end + 0.5, micro_end + 0.5],
-        linestyle = :dash, color = :red, linewidth = 1.5)
+        linestyle = :dash, color = [:red, :red, :orange, :orange], linewidth = 1.5)
 
 # Section labels (rotated 90°, positioned at center of each section)
-renewables_center = renewables_end / 2  # Center of rows 1-8 = row 4
-conventionals_center = renewables_end + (conventionals_end - renewables_end) / 2  # Center of rows 9-12 = row 10.5
-smr_center = n_external + 1.5  # Center of 3 SMR rows (rows 13-15) = row 14
-micro_center = smr_end + 1.5  # Center of 3 Micro rows (rows 16-18) = row 17
-large_center = micro_end + 1.5  # Center of 3 Large rows (rows 19-21) = row 20
+renewables_center = renewables_end / 2  # Center of rows 1-7 = row 4
+conventionals_center = renewables_end + (conventionals_end - renewables_end) / 2  # Center of rows 8-11 = row 9.5
+smr_center = n_external + 1.5  # Center of 3 SMR rows = row ~13
+micro_center = smr_end + 1.5  # Center of 3 Micro rows = row ~16
+large_center = micro_end + 1.5  # Center of 3 Large rows = row ~19
 
 text!([15000, 15000, 15000, 15000, 15000],
       [renewables_center, conventionals_center, smr_center, micro_center, large_center],
-      text = ["Renewables\n(LAZARD)",
-              "Conventionals\n(LAZARD)",
+      text = ["Renewables\n(LAZARD 2025)",
+              "Conventionals\n(LAZARD 2025)",
               "SMR\n($plot_scaling)",
               "Micro\n($plot_scaling)",
               "Large\n($plot_scaling)"],
@@ -384,7 +384,7 @@ save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_his
 # Shows cumulative probability: P(LCOE ≤ threshold) by scale
 # Use Base.invokelatest to avoid Julia 1.12 world age issues
 
-# Define thresholds (0 to 300 USD/MWh in steps of 20)
+# Define thresholds (0 to 300 EUR/MWh in steps of 20)
 lcoe_thresholds = collect(0.0:20.0:300.0)  # Float64 values required
 fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
@@ -552,7 +552,7 @@ if :year in propertynames(pjs_dat)
     df_large = filter(row -> row.scale == "Large", pjs_dat)
 
     if nrow(df_large) > 0
-        # Calculate OCC (USD/kW) from investment (USD/MW)
+        # Calculate OCC (EUR/kW) from investment (EUR/MW)
         df_large.occ = df_large.investment ./ 1000
 
         # Group by Western vs Asian
@@ -566,7 +566,7 @@ if :year in propertynames(pjs_dat)
         fig_occ_year = Figure(size=(900, 600))
         ax_occ = Axis(fig_occ_year[1, 1],
                      xlabel = "Grid Connection Year",
-                     ylabel = "OCC (USD2020/kW)",
+                     ylabel = "OCC (EUR2020/kW)",
                      title = "Overnight Capital Cost vs Year (Large Reactors)")
 
         # Plot Western reactors (blue)

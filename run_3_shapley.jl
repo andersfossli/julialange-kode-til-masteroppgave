@@ -62,9 +62,9 @@ end
 
 # Initialize Shapley results variables
 shapley_npv_results = DataFrame()
-shapley_npv_results.var = ["wacc", "construction_time", "loadfactor", "investment"]
+shapley_npv_results.var = ["wacc", "construction_time", "capacity factor", "scaling"]
 shapley_lcoe_results = DataFrame()
-shapley_lcoe_results.var = ["wacc", "construction_time", "loadfactor", "investment"]
+shapley_lcoe_results.var = ["wacc", "construction_time", "capacity factor", "scaling"]
 
 @info("Starting Shapley sensitivity analysis for all reactors")
 @info("Total reactors: $(length(pjs))")
