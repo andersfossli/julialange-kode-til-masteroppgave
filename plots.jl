@@ -1,57 +1,8 @@
 ##### plots #####
-# Standalone plotting script - loads results from CSV files
-# Compatible with split workflow (run_1_mcs.jl, run_2_sensitivity.jl, run_3_shapley.jl)
+# requires results from the main file
 
-using Pkg
-Pkg.activate(pwd())
-using CairoMakie, CSV, DataFrames, Statistics
-
-inputpath = "_input"
-outputpath = "_output"
-
-include("functions.jl")
+using CairoMakie
 include("functions_plots.jl")
-include("data.jl")
-
-##### Configuration: Load centralized settings #####
-include("config.jl")
-
-##### Load results from CSV files #####
-
-@info("Loading results from _output/ directory for scaling: $opt_scaling")
-
-# Load MCS results
-npv_results = CSV.read("$outputpath/mcs-npv_results-$opt_scaling.csv", DataFrame)
-lcoe_results = CSV.read("$outputpath/mcs-lcoe_results-$opt_scaling.csv", DataFrame)
-
-# Declare variables outside try blocks for proper scoping
-si_npv_results = nothing
-si_lcoe_results = nothing
-shapley_npv_results = nothing
-shapley_lcoe_results = nothing
-
-# Load Sensitivity Index results (if they exist)
-try
-    global si_npv_results = CSV.read("$outputpath/si-npv_results-$opt_scaling.csv", DataFrame)
-    global si_lcoe_results = CSV.read("$outputpath/si-lcoe_results-$opt_scaling.csv", DataFrame)
-    @info("Loaded sensitivity index results")
-catch e
-    @warn("Could not load sensitivity index results: $e")
-    @warn("Run run_2_sensitivity.jl first if you need SI plots")
-end
-
-# Load Shapley results (if they exist)
-try
-    global shapley_npv_results = CSV.read("$outputpath/shapley-npv_results-$opt_scaling.csv", DataFrame)
-    global shapley_lcoe_results = CSV.read("$outputpath/shapley-lcoe_results-$opt_scaling.csv", DataFrame)
-    @info("Loaded Shapley results")
-catch e
-    @warn("Could not load Shapley results: $e")
-    @warn("Run run_3_shapley.jl first if you need Shapley plots")
-end
-
-@info("Data loaded successfully. Generating plots...")
-@info("="^80)
 
 ##### comparison plot for Roulstone vs. Rothwell scaling #####
 
@@ -141,10 +92,10 @@ save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison
 @info("Skipping density plots (commented out - saves 300k simulations). Uncomment if needed for scaling method comparison.");
 
 ##### boxplots Monte Carlo simulation results #####
-# Now includes Large, SMR, and Micro reactors grouped by type (PWR/BWR, HTR, SFR)
+# requires results for all 15 reactor concepts
 
-fig_mcs_npv = mcs_plot(npv_results, "NPV", "[EUR2025/MW]", pjs)
-fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[EUR2025/MWh]", pjs)
+fig_mcs_npv = mcs_plot(npv_results, "NPV", "[EUR/MW]")
+fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[EUR/MWh]")
 
 save("$outputpath/fig-mcs_npv-$opt_scaling.pdf", fig_mcs_npv);
 save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
@@ -153,227 +104,67 @@ save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
 # requires sensitvity results
 # Note: si_plot() was replaced by si_plot_by_scale() below for better organization
 
-if !isnothing(si_npv_results) && !isnothing(si_lcoe_results)
-    @info("Generating sensitivity index plots")
-    # New: Grouped by scale (Micro/SMR/Large)
-    # Use Base.invokelatest to avoid Julia 1.12 world age issues
-    fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
-    fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
+# New: Grouped by scale (Micro/SMR/Large)
+# Use Base.invokelatest to avoid Julia 1.12 world age issues
+fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
+fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
 
-    save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
-    save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
-    @info("  - fig-si_npv_by_scale-$opt_scaling.pdf")
-    @info("  - fig-si_lcoe_by_scale-$opt_scaling.pdf")
-else
-    @warn("Skipping sensitivity index plots (data not available)")
-end
-
-##### heatmaps Shapley effects #####
-# Requires Shapley results from run_simulation.jl
-# Shapley effects properly handle correlated inputs (WACC × Construction Time)
-
-if !isnothing(shapley_npv_results) && !isnothing(shapley_lcoe_results)
-    @info("Generating Shapley sensitivity plots")
-
-    # Create heatmap plots grouped by scale
-    fig_shapley_npv_by_scale = Base.invokelatest(shapley_plot_by_scale, shapley_npv_results, "NPV Shapley Effects", pjs)
-    fig_shapley_lcoe_by_scale = Base.invokelatest(shapley_plot_by_scale, shapley_lcoe_results, "LCOE Shapley Effects", pjs)
-
-    save("$outputpath/fig-shapley_npv_by_scale-$opt_scaling.pdf", fig_shapley_npv_by_scale);
-    save("$outputpath/fig-shapley_lcoe_by_scale-$opt_scaling.pdf", fig_shapley_lcoe_by_scale);
-
-    @info("Shapley sensitivity plots saved")
-    @info("  - fig-shapley_npv_by_scale-$opt_scaling.pdf")
-    @info("  - fig-shapley_lcoe_by_scale-$opt_scaling.pdf")
-else
-    @warn("Skipping Shapley plots (data not available)")
-end
+save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
+save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
 
 ##### lcoe comparison plot #####
-# Original structure preserved - adding Large and Micro to SMR results
+# requires results for all 15 reactor concepts
 
-# Load LCOE summary statistics
-lcoe_summary = CSV.read("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", DataFrame)
+using CSV, DataFrames
 
-# Read external LCOE data (renewables, conventionals)
-lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
+# read LCOE data from CSV into a dataframe
+lcoe_dat = CSV.File("$inputpath/lcoe_data.csv") |> DataFrame;
 
-# Calculate LCOE ranges for simulation results (Large/SMR/Micro by type)
-sim_lcoe_data = DataFrame(technology=String[], lower_bound=Float64[], upper_bound=Float64[])
-reactor_types = String[]  # Store reactor types separately for color mapping
+# read LCOE data from project simulations
+lcoe_bounds = select(lcoe_summary, [:q25, :q75]);
 
-# Reactor groups in display order (BOTTOM to TOP for plotting)
-# Plot shows: Renewables → Conventionals → SMR → Micro → Large (bottom to top)
-reactor_groups = [
-    # SMR section (OLD structure - 3 rows with BWR & PWR combined)
-    ("SMR", "SFR", "SFR SMRs"),
-    ("SMR", "HTR", "HTR SMRs"),
-    ("SMR", "BWR+PWR", "BWR & PWR SMRs"),  # Special: combines both types
-
-    # Micro section (NEW - 3 rows)
-    ("Micro", "PWR", "Micro PWR"),
-    ("Micro", "HTR", "Micro HTR"),
-    ("Micro", "SFR", "Micro SFR"),
-
-    # Large section (NEW - 3 rows)
-    ("Large", "PWR+BWR", "Large PWR & BWR"),  # Special: combines both types
-    ("Large", "HTR", "Large HTR"),
-    ("Large", "SFR", "Large SFR")
-]
-
-for (scale, rtype, label) in reactor_groups
-    matching_reactors = String[]
-    for pj in pjs
-        # Handle special combined rows
-        if rtype == "BWR+PWR" && pj.scale == scale && (pj.type == "BWR" || pj.type == "PWR")
-            push!(matching_reactors, pj.name)
-        elseif rtype == "PWR+BWR" && pj.scale == scale && (pj.type == "PWR" || pj.type == "BWR")
-            push!(matching_reactors, pj.name)
-        elseif pj.scale == scale && pj.type == rtype
-            push!(matching_reactors, pj.name)
-        end
-    end
-
-    if !isempty(matching_reactors)
-        reactor_lcoes = []
-        for reactor in matching_reactors
-            # Find reactor in the variable column
-            idx = findfirst(lcoe_summary.variable .== reactor)
-            if !isnothing(idx)
-                push!(reactor_lcoes, (lcoe_summary.q25[idx], lcoe_summary.q75[idx]))
-            end
-        end
-        if !isempty(reactor_lcoes)
-            lower = minimum([x[1] for x in reactor_lcoes])
-            upper = maximum([x[2] for x in reactor_lcoes])
-            push!(sim_lcoe_data, (label, lower, upper))
-            # Store reactor type separately for color assignment
-            reactor_type = rtype == "BWR+PWR" || rtype == "PWR+BWR" ? "PWR" : rtype
-            push!(reactor_types, reactor_type)
-        end
-    end
-end
-
-# Combine external data with simulation results
+# collect plot data
 lcoe_plot_data = vcat(
     select(lcoe_dat, [:technology, :lower_bound, :upper_bound]),
-    sim_lcoe_data
-)
+    DataFrame(technology = ["BWR & PWR SMRs", "HTR SMRs", "SFR SMRs"],
+    lower_bound = [minimum(lcoe_bounds[1:9,:q25]), minimum(lcoe_bounds[10:12,:q25]), minimum(lcoe_bounds[13:15,:q25])],
+    upper_bound = [maximum(lcoe_bounds[1:9,:q75]), maximum(lcoe_bounds[10:12,:q75]), maximum(lcoe_bounds[13:15,:q75])])
+);
 
-# Define plot styling
-plot_scaling = if opt_scaling == "manufacturer"
-    "Manufacturer"
+# define LCOE plot
+if opt_scaling == "manufacturer"
+    plot_scaling = "Manufacturer";
 elseif opt_scaling == "roulstone"
-    "Roulstone"
+    plot_scaling = "Roulstone";
 elseif opt_scaling == "rothwell"
-    "Rothwell"
+    plot_scaling = "Rothwell";
 elseif opt_scaling == "uniform"
-    "Uniform"
-elseif opt_scaling == "carelli"
-    "Carelli"
+    plot_scaling = "uniform";
 else
-    opt_scaling
+    @error("scaling not defined")
 end
+xlabel = "[EUR/MWh]";
+yticks = lcoe_plot_data[!,:technology];
 
-xlabel = "[EUR2025/MWh]"
-yticks = lcoe_plot_data[!,:technology]
+col = vcat(fill(1,8),fill(2,4),3,4,5);
+colormap = [:darkgreen, :darkblue];
 
-# Color scheme with reactor type variation
-# Renewables (rows 1-7): purple (PV×3, Geothermal, Wind×3)
-# Conventionals (rows 8-11): dark blue (Gas-Peaking, Nuclear, Coal, Gas-CC)
-# Nuclear reactors: color by type (SFR=teal, HTR=yellow, PWR/BWR=orangered)
-n_external = nrow(lcoe_dat)
-n_renewables = 7  # Fixed: 7 renewable technologies in CSV
-n_conventionals = n_external - n_renewables  # Should be 4
-
-# Define color mapping by reactor type
-function get_reactor_color(reactor_type)
-    if reactor_type == "SFR"
-        return :teal
-    elseif reactor_type == "HTR"
-        return :gold
-    elseif reactor_type == "PWR"
-        return :orangered
-    else
-        return :gray  # Fallback
-    end
-end
-
-# Build color vector
-nuclear_colors = [get_reactor_color(rt) for rt in reactor_types]
-
-col = vcat(
-    fill(:purple, n_renewables),       # Renewables (purple)
-    fill(:darkblue, n_conventionals),  # Conventionals (dark blue)
-    nuclear_colors                      # Nuclear (color by type)
-)
-
-fig_lcoe_comparison = Figure()
-ax_lcoe = Axis(fig_lcoe_comparison[1,1],
-               yticks = (1:length(yticks), yticks),
-               xscale = log10,
-               xlabel = xlabel)
+fig_lcoe_comparison = Figure();
+ax_lcoe = Axis(fig_lcoe_comparison[1,1], yticks = (1:length(yticks), yticks), xscale = log10, xlabel = xlabel);
 
 xlims!(10, 25000)
 
-rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!,:lower_bound], lcoe_plot_data[!,:upper_bound],
-           linewidth = 6, whiskerwidth = 8, direction = :x, color = col)
+rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!,2], lcoe_plot_data[!,3], linewidth = 6, whiskerwidth = 8, direction = :x, color = col);
+hlines!(ax_lcoe, [8.5, 12.5], linestyle = :dash, color = :red);
+text!([15000,15000,16], [4, 10.5, 14]; text = ["Renewables\n(LAZARD)", "Conventionals\n(LAZARD)", "SMR Tech.\n($plot_scaling)"], align = (:center, :center), justification = :center, rotation = π/2);
 
-# Dividing lines (4 red/orange dashed lines)
-# Line 1: Between renewables and conventionals (after row 7)
-renewables_end = 7  # Fixed: 7 renewable technologies
-# Line 2: Between conventionals and SMR (after row 11 = all LAZARD data)
-conventionals_end = n_external  # Should be 11
-# Line 3: Between SMR and Micro (after 3 SMR rows)
-smr_end = n_external + 3  # Row 14
-# Line 4: Between Micro and Large (after 3 Micro rows)
-micro_end = n_external + 6  # Row 17
+text!(lcoe_plot_data[!,2], 1:length(yticks), text = string.(round.(Int,lcoe_plot_data[!,2])), align = (:right, :center), offset = (-10,0));
+text!(lcoe_plot_data[!,3], 1:length(yticks), text = string.(round.(Int,lcoe_plot_data[!,3])), align = (:left, :center), offset = (10,0));
 
-hlines!(ax_lcoe, [renewables_end + 0.5, conventionals_end + 0.5, smr_end + 0.5, micro_end + 0.5],
-        linestyle = :dash, color = [:red, :red, :orange, :orange], linewidth = 1.5)
-
-# Section labels (rotated 90°, positioned at center of each section)
-renewables_center = renewables_end / 2  # Center of rows 1-7 = row 4
-conventionals_center = renewables_end + (conventionals_end - renewables_end) / 2  # Center of rows 8-11 = row 9.5
-smr_center = n_external + 1.5  # Center of 3 SMR rows = row ~13
-micro_center = smr_end + 1.5  # Center of 3 Micro rows = row ~16
-large_center = micro_end + 1.5  # Center of 3 Large rows = row ~19
-
-text!([15000, 15000, 15000, 15000, 15000],
-      [renewables_center, conventionals_center, smr_center, micro_center, large_center],
-      text = ["Renewables\n(LAZARD 2025)",
-              "Conventionals\n(LAZARD 2025)",
-              "SMR\n($plot_scaling)",
-              "Micro\n($plot_scaling)",
-              "Large\n($plot_scaling)"],
-      align = (:center, :center),
-      justification = :center,
-      rotation = π/2,
-      fontsize = 10)
-
-# Add values
-text!(lcoe_plot_data[!,:lower_bound], 1:length(yticks),
-      text = string.(round.(Int, lcoe_plot_data[!,:lower_bound])),
-      align = (:right, :center), offset = (-10,0), fontsize = 9)
-text!(lcoe_plot_data[!,:upper_bound], 1:length(yticks),
-      text = string.(round.(Int, lcoe_plot_data[!,:upper_bound])),
-      align = (:left, :center), offset = (10,0), fontsize = 9)
-
-Label(fig_lcoe_comparison[1, 1, Top()], "LCOE Comparison",
-      font = "Noto Sans Bold", padding = (0, 6, 6, 0))
+Label(fig_lcoe_comparison[1, 1, Top()], "LCOE Comparison", font = "Noto Sans Bold", padding = (0, 6, 6, 0));
 
 fig_lcoe_comparison
-save("$outputpath/fig-lcoe_comparison-$opt_scaling.pdf", fig_lcoe_comparison)
-
-##### LCOE comparison plot from MCS (percentiles) #####
-# Shows P10-P90 and P25-P75 ranges from full Monte Carlo simulation
-# Includes Large reactor cost overrun uncertainty
-
-@info("Generating MCS-based LCOE comparison plot (with uncertainty bands)")
-fig_lcoe_comparison_mcs = Base.invokelatest(lcoe_comparison_from_mcs, lcoe_results, pjs; opt_scaling=opt_scaling)
-save("$outputpath/fig-lcoe_comparison_mcs-$opt_scaling.pdf", fig_lcoe_comparison_mcs)
-@info("  - fig-lcoe_comparison_mcs-$opt_scaling.pdf")
-
+save("$outputpath/fig-lcoe_comparison-$opt_scaling.pdf", fig_lcoe_comparison);
 ##### LCOE histogram grouped by scale (Micro/SMR/Large) #####
 # requires lcoe_results from simulation and pjs vector
 
@@ -384,17 +175,10 @@ save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_his
 # Shows cumulative probability: P(LCOE ≤ threshold) by scale
 # Use Base.invokelatest to avoid Julia 1.12 world age issues
 
-# Define thresholds (0 to 300 EUR/MWh in steps of 20)
+# Define thresholds (0 to 300 USD/MWh in steps of 20)
 lcoe_thresholds = collect(0.0:20.0:300.0)  # Float64 values required
 fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
-
-# Styled version with individual reactor curves
-@info("Generating styled LCOE threshold probability plot (individual reactors)")
-lcoe_thresholds_fine = collect(0.0:10.0:300.0)  # Finer resolution for smoother curves
-fig_lcoe_threshold_styled = Base.invokelatest(lcoe_threshold_probability_plot_styled, lcoe_results, pjs; thresholds=lcoe_thresholds_fine)
-save("$outputpath/fig-lcoe_threshold_probability_styled-$opt_scaling.pdf", fig_lcoe_threshold_styled);
-@info("  - fig-lcoe_threshold_probability_styled-$opt_scaling.pdf")
 
 ##### Regional comparison plots #####
 # Compare LCOE distributions across regions
@@ -511,36 +295,6 @@ fig_wacc_sensitivity = Base.invokelatest(
 save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
 @info("WACC sensitivity plot saved (0 new simulations, used existing data)")
 
-##### Learning Curve Analysis Plots #####
-# Shows LCOE vs cumulative units (N) for different learning rates
-# Requires learning curve data from run_4_learning.jl
-
-@info("Generating learning curve plots")
-
-try
-    learning_figs = Base.invokelatest(learning_curve_plot, outputpath, opt_scaling)
-
-    if !isnothing(learning_figs[1])
-        save("$outputpath/fig-learning_curves_micro-$opt_scaling.pdf", learning_figs[1])
-        @info("  - fig-learning_curves_micro-$opt_scaling.pdf")
-    end
-
-    if !isnothing(learning_figs[2])
-        save("$outputpath/fig-learning_curves_smr-$opt_scaling.pdf", learning_figs[2])
-        @info("  - fig-learning_curves_smr-$opt_scaling.pdf")
-    end
-
-    if !isnothing(learning_figs[3])
-        save("$outputpath/fig-learning_curves_large-$opt_scaling.pdf", learning_figs[3])
-        @info("  - fig-learning_curves_large-$opt_scaling.pdf")
-    end
-
-    @info("Learning curve plots saved")
-catch e
-    @warn("Could not generate learning curve plots: $e")
-    @warn("Run run_4_learning.jl first to generate learning curve data")
-end
-
 ##### OCC vs Year plot (Large reactors only) #####
 # Shows Western vs Asian reactors with linear trend lines
 
@@ -552,7 +306,7 @@ if :year in propertynames(pjs_dat)
     df_large = filter(row -> row.scale == "Large", pjs_dat)
 
     if nrow(df_large) > 0
-        # Calculate OCC (EUR/kW) from investment (EUR/MW)
+        # Calculate OCC (USD/kW) from investment (USD/MW)
         df_large.occ = df_large.investment ./ 1000
 
         # Group by Western vs Asian
@@ -566,7 +320,7 @@ if :year in propertynames(pjs_dat)
         fig_occ_year = Figure(size=(900, 600))
         ax_occ = Axis(fig_occ_year[1, 1],
                      xlabel = "Grid Connection Year",
-                     ylabel = "OCC (EUR2020/kW)",
+                     ylabel = "OCC (EUR2025/kW)",
                      title = "Overnight Capital Cost vs Year (Large Reactors)")
 
         # Plot Western reactors (blue)
@@ -710,6 +464,7 @@ type_full_names = Dict(
     "SFR" => "Sodium-cooled Fast Reactor",
     "HTR" => "High-Temperature Gas-cooled Reactor"
 )
+
 
 type_descriptions = Dict(
     "PWR" => "Dominant type in SMR and Large",
