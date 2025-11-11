@@ -43,11 +43,11 @@ construction_time_ranges = Dict(
 )
 
 # scaling parameter
-scaling = [0.20, 0.75]
+scaling = [0.4, 0.7]  # Thesis: uniform distribution
 
 # scaling options
 opts_scaling = ["manufacturer", "roulstone", "rothwell", "uniform", "carelli"]
-local_scaling_index = 3  # 3 = rothwell
+local_scaling_index = 2  # 2 = roulstone (thesis default)
 
 # choose scaling option
 if @isdefined(par_job) == true
