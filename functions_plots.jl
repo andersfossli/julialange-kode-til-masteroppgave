@@ -14,7 +14,7 @@ Finally, the function adds a legend to the plot and returns the figure object.
 #         scaled_investments.res = gen_scaled_investment(scaling_plot, pjs[p])
 #         rename!(scaled_investments,:res => pjs[p].name)
 #     end
-#     xlabel = "[USD/MW]";
+#     xlabel = "[EUR2025/MW]";
 #     yticks = names(scaled_investments);
 #     fig_invest_comparison = Figure();
 #     ax_invest = Axis(fig_invest_comparison[1,1], yticks = (1:length(yticks), yticks), xscale = log10, xlabel = xlabel);
@@ -130,58 +130,86 @@ function mcs_plot(mcs_results, title::String, ylabel::String, pjs::Union{Vector,
         xticks_sf = names(mcs_results)[13:15];
     end
 
-    mcs_boxplot = Figure();
+    mcs_boxplot = Figure(size=(1600, 900));  # Increased height for better readability
     n = nrow(mcs_results)  # Number of Monte Carlo samples
 
-    # Calculate 10-90% quantile range for y-axis limits (across all reactors)
-    all_data = Float64[]
-    for reactor_name in names(mcs_results)
-        if reactor_name in vcat(xticks_wc, xticks_ht, xticks_sf)
-            append!(all_data, mcs_results[!, reactor_name])
+    # Calculate per-panel y-axis limits for better visibility
+    # Helper function to calculate limits for a group
+    function calc_panel_limits(reactor_list)
+        panel_data = Float64[]
+        for reactor_name in reactor_list
+            if hasproperty(mcs_results, reactor_name)
+                append!(panel_data, mcs_results[!, reactor_name])
+            end
         end
+        if isempty(panel_data)
+            return (0.0, 100.0)  # Fallback
+        end
+        q10 = quantile(panel_data, 0.05)  # Use 5-95% for better range
+        q90 = quantile(panel_data, 0.95)
+        range_width = q90 - q10
+        return (q10 - 0.15 * range_width, q90 + 0.15 * range_width)
     end
-    q10 = quantile(all_data, 0.10)
-    q90 = quantile(all_data, 0.90)
-    range_width = q90 - q10
-    ylim_low = q10 - 0.1 * range_width
-    ylim_high = q90 + 0.1 * range_width
+
+    # Calculate limits for each panel
+    ylim_wc = calc_panel_limits(xticks_wc)
+    ylim_ht = calc_panel_limits(xticks_ht)
+    ylim_sf = calc_panel_limits(xticks_sf)
+
+    # Debug output
+    @info "Box plot y-axis limits:" PWR_BWR=ylim_wc HTR=ylim_ht SFR=ylim_sf
 
     ax_wc = Axis(mcs_boxplot[1,1],
                  xticks = (1:length(xticks_wc), xticks_wc),
                  ylabel = ylabel,
-                 limits = (nothing, nothing, ylim_low, ylim_high));
+                 limits = (nothing, nothing, ylim_wc[1], ylim_wc[2]));
     ax_wc.xticklabelrotation = π / 3;
     ax_wc.yticklabelrotation = π / 2;
     ax_wc.xticklabelalign = (:right, :center);
+    ax_wc.ygridvisible = true;  # Add grid for easier reading
 
     for (i, reactor_name) in enumerate(xticks_wc)
-        boxplot!(ax_wc, fill(i,n), mcs_results[!,reactor_name], color = :orangered)
+        if hasproperty(mcs_results, reactor_name)
+            boxplot!(ax_wc, fill(i,n), mcs_results[!,reactor_name], color = :orangered, show_outliers=true)
+        else
+            @warn "Reactor $reactor_name not found in MCS results"
+        end
     end;
 
     Label(mcs_boxplot[1, 1, Top()], "BWR & PWR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0))
 
     ax_ht = Axis(mcs_boxplot[1,2],
                  xticks = (1:length(xticks_ht), xticks_ht),
-                 limits = (nothing, nothing, ylim_low, ylim_high));
+                 limits = (nothing, nothing, ylim_ht[1], ylim_ht[2]));
     ax_ht.xticklabelrotation = π / 3;
     ax_ht.yticklabelrotation = π / 2;
     ax_ht.xticklabelalign = (:right, :center);
+    ax_ht.ygridvisible = true;
 
     for (i, reactor_name) in enumerate(xticks_ht)
-        boxplot!(ax_ht, fill(i,n), mcs_results[!,reactor_name], color = :gold)
+        if hasproperty(mcs_results, reactor_name)
+            boxplot!(ax_ht, fill(i,n), mcs_results[!,reactor_name], color = :gold, show_outliers=true)
+        else
+            @warn "Reactor $reactor_name not found in MCS results"
+        end
     end;
 
     Label(mcs_boxplot[1, 2, Top()], "HTR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0));
 
     ax_sf = Axis(mcs_boxplot[1,3],
                  xticks = (1:length(xticks_sf), xticks_sf),
-                 limits = (nothing, nothing, ylim_low, ylim_high));
+                 limits = (nothing, nothing, ylim_sf[1], ylim_sf[2]));
     ax_sf.xticklabelrotation = π / 3;
     ax_sf.yticklabelrotation = π / 2;
     ax_sf.xticklabelalign = (:right, :center);
+    ax_sf.ygridvisible = true;
 
     for (i, reactor_name) in enumerate(xticks_sf)
-        boxplot!(ax_sf, fill(i,n), mcs_results[!,reactor_name], color = :teal)
+        if hasproperty(mcs_results, reactor_name)
+            boxplot!(ax_sf, fill(i,n), mcs_results[!,reactor_name], color = :teal, show_outliers=true)
+        else
+            @warn "Reactor $reactor_name not found in MCS results"
+        end
     end;
 
     Label(mcs_boxplot[1, 3, Top()], "SFR types", font = "Noto Sans Bold", padding = (0, 6, 6, 0));
@@ -311,7 +339,7 @@ function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
 
             # Create axis for this subplot with limited x-range
             ax = Axis(fig[1, col_idx],
-                      xlabel = "LCOE [USD/MWh]",
+                      xlabel = "LCOE [EUR2025/MWh]",
                       ylabel = "Probability Density",
                       title = "$scale Reactors (10-90% quantile range)",
                       limits = (xlim_low, xlim_high, nothing, nothing))
@@ -443,7 +471,7 @@ function learning_curve_plot(outputpath::String, opt_scaling::String, learning_s
     fig = Figure(size = (800, 600))
     ax = Axis(fig[1, 1],
               xlabel = "Number of Units Built (N)",
-              ylabel = "Mean LCOE [USD/MWh]",
+              ylabel = "Mean LCOE [EUR2025/MWh]",
               title = isnothing(reactor_name) ? "Learning Curve: Mean LCOE vs Experience" : "Learning Curve: $reactor_name")
 
     # Add baseline as dashed reference line (SOAK level)
@@ -536,7 +564,7 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
 
         ax = Axis(fig[1, col_idx],
                   xlabel = "Number of Units Built (N)",
-                  ylabel = "Mean LCOE [USD/MWh]",
+                  ylabel = "Mean LCOE [EUR2025/MWh]",
                   title = "$scale Reactors - Learning Curve")
 
         # Collect data for this scale
@@ -616,8 +644,13 @@ function learning_curve_comparison_plot(outputpath::String, opt_scaling::String,
             end
         end
 
-        # Add legend for each subplot
-        axislegend(ax, position = :rt)
+        # Add legend for each subplot (only if there are labeled elements)
+        try
+            axislegend(ax, position = :rt)
+        catch e
+            # Skip legend if no labeled plot elements exist
+            @debug "No legend items for scale $scale: $e"
+        end
 
         ax.xgridvisible = true
         ax.ygridvisible = true
@@ -879,7 +912,7 @@ function investment_plot_by_scale(pjs::Vector, scaling_plot::Vector)
         ax = Axis(fig[row_idx, 1],
                   yticks = (1:length(reactor_names), reactor_names),
                   xscale = log10,
-                  xlabel = "[USD/MW]",
+                  xlabel = "[EUR2025/MW]",
                   title = "$scale Reactors")
 
         # Plot range bars and manufacturer estimates
@@ -953,7 +986,7 @@ function lcoe_threshold_probability_plot(lcoe_results::DataFrame, pjs::Vector;
     # Calculate probabilities for each scale
     fig = Figure(size = (1000, 600))
     ax = Axis(fig[1, 1],
-              xlabel = "LCOE Threshold [USD/MWh]",
+              xlabel = "LCOE Threshold [EUR2025/MWh]",
               ylabel = "Probability LCOE > Threshold [%]",
               title = "Probability of Exceeding Cost Thresholds by Reactor Scale")
 
@@ -1080,7 +1113,7 @@ function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
         ax = Axis(fig[1, col_idx],
                  title="$region $(scale_filter) Reactors",
                  xlabel="Reactor",
-                 ylabel="LCOE [USD/MWh]",
+                 ylabel="LCOE [EUR2025/MWh]",
                  xticks=(1:length(reactor_names), reactor_names),
                  xticklabelrotation=π/4)
 
@@ -1127,7 +1160,7 @@ function mcs_plot_regional(lcoe_results, pjs; scale_filter="Large")
             region_all_lcoe = vcat(region_lcoe_vectors...)
             region_mean = mean(region_all_lcoe)
             hlines!(ax, [region_mean], color=:black, linestyle=:dash, linewidth=2,
-                   label="Regional Mean: $(round(region_mean, digits=1)) USD/MWh")
+                   label="Regional Mean: $(round(region_mean, digits=1)) EUR2025/MWh")
 
             # Add legend
             axislegend(ax, position=:rt)
@@ -1199,7 +1232,7 @@ function mcs_plot_regional_combined(lcoe_results, pjs; scale_filter="Large")
     ax = Axis(fig[1, 1],
              title="Regional LCOE Comparison: $(scale_filter) Reactors",
              xlabel="Region",
-             ylabel="LCOE [USD/MWh]",
+             ylabel="LCOE [EUR2025/MWh]",
              xticks=(1:n_regions, regions),
              xticklabelrotation=π/6)
 
@@ -1293,7 +1326,7 @@ Arguments:
 - `wacc_bin_centers`: Vector of WACC percentages for bin centers (e.g., 0:1:15 for 0%, 1%, ..., 15%)
 
 Returns:
-- Figure with WACC (%) vs median LCOE (USD/MWh) for Micro, SMR, and Large reactors
+- Figure with WACC (%) vs median LCOE (EUR2025/MWh) for Micro, SMR, and Large reactors
 """
 function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_centers)
 
@@ -1358,7 +1391,7 @@ function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_center
     fig = Figure(size=(800, 600))
     ax = Axis(fig[1,1],
              xlabel="Discount rate (WACC, %)",
-             ylabel="Median LCOE [USD/MWh]",
+             ylabel="Median LCOE [EUR2025/MWh]",
              title="LCOE Sensitivity to Discount Rate by Reactor Scale")
 
     # Plot lines for each scale
@@ -1403,7 +1436,7 @@ Create learning curve plots showing LCOE vs cumulative units (N) for different l
 
 Each plot shows:
 - X-axis: Cumulative units (N)
-- Y-axis: LCOE [USD/MWh]
+- Y-axis: LCOE [EUR2025/MWh]
 - Lines: One per reactor × learning rate combination
 - Shaded bands: P10-P90 uncertainty ranges
 - Colors: By reactor type (PWR/BWR=orangered, HTR=gold, SFR=teal)
@@ -1463,7 +1496,7 @@ function learning_curve_plot(data_path::String, opt_scaling::String)
             # Create axis for this reactor
             ax = Axis(fig[row_idx, col_idx],
                 xlabel = "Cumulative Units (N)",
-                ylabel = "LCOE [USD/MWh]",
+                ylabel = "LCOE [EUR2025/MWh]",
                 title = reactor)
             
             # Get reactor type for coloring
@@ -1532,7 +1565,7 @@ Create a styled LCOE threshold probability plot showing individual reactor curve
 # Arguments
 - `lcoe_results`: DataFrame with LCOE simulation results (columns = reactor names)
 - `pjs`: Vector of project objects containing reactor metadata
-- `thresholds`: Vector of LCOE thresholds to evaluate (default: 0-300 USD/MWh)
+- `thresholds`: Vector of LCOE thresholds to evaluate (default: 0-300 EUR2025/MWh)
 
 # Returns
 - Figure with individual reactor probability curves colored by scale
@@ -1587,7 +1620,7 @@ function lcoe_threshold_probability_plot_styled(lcoe_results::DataFrame, pjs::Ve
     fig = Figure(size = (1400, 800))
     
     ax = Axis(fig[1, 1],
-              xlabel = "LCOE Threshold [USD/MWh]",
+              xlabel = "LCOE Threshold [EUR2025/MWh]",
               ylabel = "Probability of Exceeding Threshold [%]",
               xlabelsize = 16,
               ylabelsize = 16,
@@ -1695,7 +1728,7 @@ Creates horizontal range plot showing:
 function lcoe_comparison_from_mcs(lcoe_results::DataFrame, pjs::Vector;
                                    opt_scaling::String="rothwell")
     
-    # Load external LCOE data (Lazard 2023 benchmarks)
+    # Load external LCOE data (Lazard LCOE 18.0, 2025 edition)
     inputpath = "_input"
     lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
     
@@ -1740,7 +1773,7 @@ function lcoe_comparison_from_mcs(lcoe_results::DataFrame, pjs::Vector;
     # Create figure
     fig = Figure(size=(1400, 1000))
     ax = Axis(fig[1,1],
-             xlabel = "LCOE [USD/MWh]",
+             xlabel = "LCOE [EUR2025/MWh]",
              xscale = log10,
              ylabel = "Technology",
              xlabelsize = 16,
@@ -1819,7 +1852,7 @@ function lcoe_comparison_from_mcs(lcoe_results::DataFrame, pjs::Vector;
     Label(fig[0, :], "LCOE Comparison: Monte Carlo Simulation vs Benchmarks ($opt_scaling scaling)",
           fontsize=18, font="Noto Sans Bold")
     
-    Label(fig[2, :], "Nuclear bands: 10th-90th (light) and 25th-75th (dark) percentiles from MCS (1M samples). Black line = median. Benchmark data: Lazard LCOE 2023.",
+    Label(fig[2, :], "Nuclear bands: 10th-90th (light) and 25th-75th (dark) percentiles from MCS (1M samples). Black line = median. Benchmark data: Lazard LCOE 18.0 (2025).",
           fontsize=11)
     
     return fig

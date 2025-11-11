@@ -65,10 +65,10 @@ end
 # initialize results variables
 si_npv_results = DataFrame()
 si_npv_results.si = ["S", "S", "S", "S", "ST", "ST", "ST", "ST"]
-si_npv_results.var = ["wacc", "construction_time", "loadfactor", "investment", "wacc", "construction_time", "loadfactor", "investment"]
+si_npv_results.var = ["wacc", "construction_time", "capacity factor", "scaling", "wacc", "construction_time", "capacity factor", "scaling"]
 si_lcoe_results = DataFrame()
 si_lcoe_results.si = ["S", "S", "S", "S", "ST", "ST", "ST", "ST"]
-si_lcoe_results.var = ["wacc", "construction_time", "loadfactor", "investment", "wacc", "construction_time", "loadfactor", "investment"]
+si_lcoe_results.var = ["wacc", "construction_time", "capacity factor", "scaling", "wacc", "construction_time", "capacity factor", "scaling"]
 
 # run sensitivity analysis for all projects
 for p in eachindex(pjs)

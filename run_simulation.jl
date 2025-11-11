@@ -51,10 +51,10 @@ CSV.write("$outputpath/mcs-investment_values-$opt_scaling.csv", investment_value
 # initialize results variables
 si_npv_results = DataFrame();
 si_npv_results.si = ["S", "S", "S", "S", "ST", "ST", "ST", "ST"];
-si_npv_results.var = ["wacc", "construction_time", "loadfactor", "investment", "wacc", "construction_time", "loadfactor", "investment"];
+si_npv_results.var = ["wacc", "construction_time", "capacity factor", "scaling", "wacc", "construction_time", "capacity factor", "scaling"];
 si_lcoe_results = DataFrame();
 si_lcoe_results.si = ["S", "S", "S", "S", "ST", "ST", "ST", "ST"];
-si_lcoe_results.var = ["wacc", "construction_time", "loadfactor", "investment", "wacc", "construction_time", "loadfactor", "investment"];
+si_lcoe_results.var = ["wacc", "construction_time", "capacity factor", "scaling", "wacc", "construction_time", "capacity factor", "scaling"];
 
 # run sensitivity analysis for all projects
 for p in eachindex(pjs)
@@ -77,9 +77,9 @@ CSV.write("$outputpath/si-lcoe_results-$opt_scaling.csv", si_lcoe_results);
 
 # Initialize Shapley results variables
 shapley_npv_results = DataFrame();
-shapley_npv_results.var = ["wacc", "construction_time", "loadfactor", "investment"];
+shapley_npv_results.var = ["wacc", "construction_time", "capacity factor", "scaling"];
 shapley_lcoe_results = DataFrame();
-shapley_lcoe_results.var = ["wacc", "construction_time", "loadfactor", "investment"];
+shapley_lcoe_results.var = ["wacc", "construction_time", "capacity factor", "scaling"];
 
 @info("Starting Shapley sensitivity analysis for all reactors")
 @info("Total reactors: $(length(pjs))")
