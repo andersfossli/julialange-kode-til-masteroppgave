@@ -184,6 +184,11 @@ function generate_correlated_samples(n::Int, wacc_range::Vector, ct_range::Vecto
     Σ = [1.0  ρ;
          ρ    1.0]
 
+    # Validate correlation matrix is not near-singular
+    if det(Σ) < 1e-10
+        error("Correlation matrix near-singular: ρ=$ρ")
+    end
+
     # Cholesky decomposition: Σ = L * L'
     L = cholesky(Σ).L
 
@@ -267,14 +272,17 @@ rand_vars = gen_rand_vars("rothwell", 10000, [0.04, 0.10], 74.0, project;
 function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
                        apply_learning::Bool=false, N_unit::Int=1, LR::Float64=0.0, kappa::Float64=1.0, floor_m::Union{Nothing,Float64}=nothing,
                        apply_soak_discount::Bool=false,
-                       construction_time_range::Union{Nothing,Vector}=nothing)
+                       construction_time_range::Union{Nothing,Vector}=nothing,
+                       quiet::Bool=false)
 
-    @info "generating random variables"
+    if !quiet
+        @info "generating random variables"
+    end
 
     # SOAK discount factor: if not applying, use 1.0 (no discount)
     soak_factor = apply_soak_discount ? (1 - pj.learning_factor) : 1.0
 
-    if !apply_soak_discount
+    if !apply_soak_discount && !quiet
         @info("SOAK discount disabled: using manufacturer OCC without learning_factor discount")
     end
 
@@ -283,7 +291,9 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
     if !isnothing(construction_time_range)
         max_possible_construction = construction_time_range[2]  # upper bound of construction time range
         total_time = max_possible_construction + pj.time[2]
-        @info("Array sizing based on max construction time: $max_possible_construction + $(pj.time[2]) = $total_time years")
+        if !quiet
+            @info("Array sizing based on max construction time: $max_possible_construction + $(pj.time[2]) = $total_time years")
+        end
     else
         total_time = pj.time[1] + pj.time[2]
     end
@@ -303,9 +313,11 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
             ct_mode = 5.0  # Thesis: Micro/SMR reactors mode at 5 years
         end
 
-        @info("Generating correlated samples: WACC × construction_time (ρ=0.4)")
-        @info("  WACC: [$(wacc[1]), $(wacc[2])], mode=$(wacc_mode)")
-        @info("  Construction time: [$(construction_time_range[1]), $(construction_time_range[2])], mode=$(ct_mode)")
+        if !quiet
+            @info("Generating correlated samples: WACC × construction_time (ρ=0.4)")
+            @info("  WACC: [$(wacc[1]), $(wacc[2])], mode=$(wacc_mode)")
+            @info("  Construction time: [$(construction_time_range[1]), $(construction_time_range[2])], mode=$(ct_mode)")
+        end
         rand_wacc, rand_construction_time_float = generate_correlated_samples(
             n, wacc, construction_time_range;
             ρ=0.4, wacc_mode=wacc_mode, ct_mode=ct_mode
@@ -314,11 +326,13 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
         rand_construction_time = round.(Int, rand_construction_time_float)
 
         # Verify correlation achieved (only meaningful for n >= 2)
-        if n >= 2
-            actual_corr = cor(rand_wacc, rand_construction_time_float)
-            @info("Empirical correlation: $(round(actual_corr, digits=3))")
-        else
-            @info("Empirical correlation: N/A (n=1, correlation not defined)")
+        if !quiet
+            if n >= 2
+                actual_corr = cor(rand_wacc, rand_construction_time_float)
+                @info("Empirical correlation: $(round(actual_corr, digits=3))")
+            else
+                @info("Empirical correlation: N/A (n=1, correlation not defined)")
+            end
         end
     else
         # Fallback: independent triangular sampling if no CT range
@@ -338,7 +352,9 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
     lf_max = min(lf_mean + 0.15, 0.95)  # Upper bound: mean + 15%, capped at 95%
     lf_mode = lf_mean  # Mode at mean value
 
-    @info("Load factor distribution: min=$(round(lf_min, digits=3)), mode=$(round(lf_mode, digits=3)), max=$(round(lf_max, digits=3))")
+    if !quiet
+        @info("Load factor distribution: min=$(round(lf_min, digits=3)), mode=$(round(lf_mode, digits=3)), max=$(round(lf_max, digits=3))")
+    end
 
     lf_dist = TriangularDist(lf_min, lf_max, lf_mode)
     rand_loadfactor = rand(lf_dist, n, total_time)
@@ -348,7 +364,9 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
             # Note that the scaling parameter here are converted such that Rothwell and Roulstone coincide.
             # Special handling for Large reactors: use face value with cost overrun multiplier
             if pj.scale == "Large"
-                @info("Large reactor detected: applying cost overrun multiplier (no scaling)")
+                if !quiet
+                    @info("Large reactor detected: applying cost overrun multiplier (no scaling)")
+                end
                 # Cost overrun multiplier based on historical nuclear construction
                 # References: INL/RPT-23-72972, Grubler (2010), Lovering et al. (2016)
                 # Mode at 1.35 reflects typical ~35% manufacturer underestimation
@@ -359,30 +377,42 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
                 # Base investment (manufacturer estimate) multiplied by overrun factor
                 rand_investment = pj.investment * pj.plant_capacity * rand_overrun * soak_factor
 
-                @info("  Overrun range: [0.8, 3.0], mode=1.35")
-                @info("  Mean multiplier: $(round(mean(rand_overrun), digits=2))")
-                @info("  Median multiplier: $(round(median(rand_overrun), digits=2))")
+                if !quiet
+                    @info("  Overrun range: [0.8, 3.0], mode=1.35")
+                    @info("  Mean multiplier: $(round(mean(rand_overrun), digits=2))")
+                    @info("  Median multiplier: $(round(median(rand_overrun), digits=2))")
+                end
             elseif opt_scaling == "manufacturer"
-                @info("using manufacturer estimates")
+                if !quiet
+                    @info("using manufacturer estimates")
+                end
                 # deterministic investment cost based on manufacturer estimates [USD]
                 rand_investment = pj.investment * pj.plant_capacity * ones(n) * soak_factor
             elseif opt_scaling == "roulstone"
-                @info("using Roulstone scaling")
+                if !quiet
+                    @info("using Roulstone scaling")
+                end
                 # random investment cost based on Roulstone [USD]
                 rand_scaling = scaling[1] .+ (scaling[2] - scaling[1]) .* rand(n,1)
                 rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor * (pj.plant_capacity/pj.reference_pj[2]) .^ (rand_scaling)
             elseif opt_scaling == "rothwell"
-                @info("using Rothwell scaling")
+                if !quiet
+                    @info("using Rothwell scaling")
+                end
                 # random investment cost based on Rothwell [USD]
                 rand_scaling = 2^(scaling[1]-1) .+ (2^(scaling[2]-1) - 2^(scaling[1]-1)) .* rand(n,1)
                 rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(rand_scaling) ./ log(2))
             elseif opt_scaling == "uniform"
-                @info("using uniform scaling")
+                if !quiet
+                    @info("using uniform scaling")
+                end
                 # random investment cost uniform [USD]
                 investment_scaled = pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ (scaling)
                 rand_investment = investment_scaled[1] .+ (investment_scaled[2]-investment_scaled[1]) .* rand(n,1) .* soak_factor
             elseif opt_scaling == "carelli"
-                @info("using Carelli scaling (economies of scale normalization)")
+                if !quiet
+                    @info("using Carelli scaling (economies of scale normalization)")
+                end
                 # Carelli scaling: normalize OCC to reference capacity for scale-independent comparison
                 # Default: P_ref = 1200 MWe, β = 0.20 (can be parameterized later)
                 p_ref = 1200.0  # Reference capacity [MWe]
@@ -397,8 +427,10 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
                 # Convert back to total investment [USD]
                 rand_investment = occ_si * pj.plant_capacity * ones(n) * soak_factor
 
-                @info("  Carelli parameters: P=$(pj.plant_capacity) MWe, P_ref=$p_ref MWe, β=$beta")
-                @info("  Raw OCC: $(round(raw_occ, digits=0)) USD/kW → SI-OCC: $(round(occ_si, digits=0)) USD/kW")
+                if !quiet
+                    @info("  Carelli parameters: P=$(pj.plant_capacity) MWe, P_ref=$p_ref MWe, β=$beta")
+                    @info("  Raw OCC: $(round(raw_occ, digits=0)) USD/kW → SI-OCC: $(round(occ_si, digits=0)) USD/kW")
+                end
             else
                 @error("Option for the scaling method is unknown.")
             end
@@ -413,10 +445,12 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
 
         m = learning_multiplier(N_unit, LR; kappa=kappa, floor=floor_m, learning_type=learning_type)
 
-        if pj.scale == "Large"
-            @info("Applying deployment learning (LR/2): $(pj.scale) reactor, N=$N_unit, LR=$LR, effective_LR=$(LR/2), κ=$kappa, floor=$floor_m → multiplier=$m")
-        else
-            @info("Applying factory learning (full LR): $(pj.scale) reactor, N=$N_unit, LR=$LR, κ=$kappa, floor=$floor_m → multiplier=$m")
+        if !quiet
+            if pj.scale == "Large"
+                @info("Applying deployment learning (LR/2): $(pj.scale) reactor, N=$N_unit, LR=$LR, effective_LR=$(LR/2), κ=$kappa, floor=$floor_m → multiplier=$m")
+            else
+                @info("Applying factory learning (full LR): $(pj.scale) reactor, N=$N_unit, LR=$LR, κ=$kappa, floor=$floor_m → multiplier=$m")
+            end
         end
 
         rand_investment .*= m
@@ -442,7 +476,7 @@ Finally, the function returns the results of the simulation in the form of a nam
 """
 function mc_run(n::Int64, pj::project, rand_vars)
 
-    @info "running Monte Carlo simulation"
+    # @info "running Monte Carlo simulation"  # Commented out - too verbose for nested calls
 
     # project data
         # O&M costs
@@ -519,8 +553,8 @@ The NPV is then calculated by taking the sum of the disc_cash_net variable along
 Finally, the function returns a named tuple with two fields, npv and lcoe with the calculated values.
 """
 function npv_lcoe(disc_res)
- 
-    @info "calculating NPV and LCOE"
+
+    # @info "calculating NPV and LCOE"  # Commented out - too verbose for nested calls
 
     disc_cash_out = disc_res.disc_cash_out
     disc_cash_net = disc_res.disc_cash_net
@@ -617,7 +651,7 @@ function investment_simulation(pj::project, rand_vars)
     res = npv_lcoe(disc_res)
 
     # output
-    @info "simulation results" pj.name pj.type NPV = mean(res[1]) LCOE = mean(res[2])
+    # @info "simulation results" pj.name pj.type NPV = mean(res[1]) LCOE = mean(res[2])  # Commented out - too verbose for nested calls
     return(res)
 
 end
@@ -1244,7 +1278,9 @@ println("Shapley effects for LCOE:", sh_results.sh_lcoe)
 function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, electricity_price_mean::Float64, pj::project;
                                    construction_time_range::Union{Nothing,Vector}=nothing, quiet::Bool=false)
 
-    @info "Computing Shapley sensitivity indices with CORRECTED nested sampling (handles correlated inputs)"
+    if !quiet
+        @info "Computing Shapley sensitivity indices with CORRECTED nested sampling (handles correlated inputs)"
+    end
 
     # Define parameter names
     param_names = [:wacc, :construction_time, :loadfactor, :investment]
@@ -1261,19 +1297,25 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     # Base variance is only used for reference, nested sampling is the main computation
     n_base = min(n, 10000)  # Cap at 10k samples for base variance
 
-    @info "Nested sampling parameters: n_outer=$n_outer, n_inner=$n_inner"
-    @info "Cost per coalition: $(n_outer * n_inner) model evaluations"
-    @info "Base variance samples: $n_base (optimization: reduced from $n)"
+    if !quiet
+        @info "Nested sampling parameters: n_outer=$n_outer, n_inner=$n_inner"
+        @info "Cost per coalition: $(n_outer * n_inner) model evaluations"
+        @info "Base variance samples: $n_base (optimization: reduced from $n)"
+    end
 
     # Generate base samples A and B (independent draws with correlation structure preserved)
-    @info "Generating base samples A and B for total variance estimation"
+    if !quiet
+        @info "Generating base samples A and B for total variance estimation"
+    end
     rand_vars_A = gen_rand_vars(opt_scaling, n_base, wacc, electricity_price_mean, pj;
-                                construction_time_range=construction_time_range)
+                                construction_time_range=construction_time_range, quiet=true)
     rand_vars_B = gen_rand_vars(opt_scaling, n_base, wacc, electricity_price_mean, pj;
-                                construction_time_range=construction_time_range)
+                                construction_time_range=construction_time_range, quiet=true)
 
     # Run base simulations
-    @info "Running base simulations (A and B)"
+    if !quiet
+        @info "Running base simulations (A and B)"
+    end
     res_A = investment_simulation(pj, rand_vars_A)
     res_B = investment_simulation(pj, rand_vars_B)
 
@@ -1283,7 +1325,9 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     total_var_npv = var(npv_all, corrected=false)
     total_var_lcoe = var(lcoe_all, corrected=false)
 
-    @info "Total variance - NPV: $(round(total_var_npv, sigdigits=4)), LCOE: $(round(total_var_lcoe, sigdigits=4))"
+    if !quiet
+        @info "Total variance - NPV: $(round(total_var_npv, sigdigits=4)), LCOE: $(round(total_var_lcoe, sigdigits=4))"
+    end
 
     # ═══════════════════════════════════════════════════════════════
     # FIX #2: Generate shared outer design (same X_S^(k) for all coalitions)
@@ -1291,22 +1335,30 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     # Seed global RNG for reproducible outer_base generation
     # This ensures consistent results across runs (ChatGPT recommendation #3)
     Random.seed!(42)  # Fixed seed for reproducibility
-    @info "Global RNG seeded for reproducible outer_base generation"
+    if !quiet
+        @info "Global RNG seeded for reproducible outer_base generation"
+    end
 
-    @info "Generating shared outer design (n_outer=$n_outer samples) for all coalitions"
+    if !quiet
+        @info "Generating shared outer design (n_outer=$n_outer samples) for all coalitions"
+    end
     outer_base = []
     for k in 1:n_outer
         # Generate one realization of all 4 parameters
         sample = gen_rand_vars(opt_scaling, 1, wacc, electricity_price_mean, pj;
-                              construction_time_range=construction_time_range)
+                              construction_time_range=construction_time_range, quiet=true)
         push!(outer_base, sample)
     end
-    @info "Outer design generated: $(length(outer_base)) realizations"
+    if !quiet
+        @info "Outer design generated: $(length(outer_base)) realizations"
+    end
 
     # ═══════════════════════════════════════════════════════════════
     # FIX #1: Compute normalization from same engine (V_full - V_empty)
     # ═══════════════════════════════════════════════════════════════
-    @info "Computing V(∅) and V(all) for normalization (using outer_base)"
+    if !quiet
+        @info "Computing V(∅) and V(all) for normalization (using outer_base)"
+    end
 
     coalition_id_empty = hash(Symbol[])
     V_empty_npv, V_empty_lcoe = estimate_conditional_variance_V_S(
@@ -1329,8 +1381,10 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     norm_npv = max(V_full_npv - V_empty_npv, eps())
     norm_lcoe = max(V_full_lcoe - V_empty_lcoe, eps())
 
-    @info "Normalization: V(full)-V(∅) = NPV: $(round(norm_npv, sigdigits=4)), LCOE: $(round(norm_lcoe, sigdigits=4))"
-    @info "For comparison, A/B total_var = NPV: $(round(total_var_npv, sigdigits=4)), LCOE: $(round(total_var_lcoe, sigdigits=4))"
+    if !quiet
+        @info "Normalization: V(full)-V(∅) = NPV: $(round(norm_npv, sigdigits=4)), LCOE: $(round(norm_lcoe, sigdigits=4))"
+        @info "For comparison, A/B total_var = NPV: $(round(total_var_npv, sigdigits=4)), LCOE: $(round(total_var_lcoe, sigdigits=4))"
+    end
 
     # Initialize Shapley effects
     sh_npv = Dict{Symbol, Float64}()
@@ -1338,7 +1392,9 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
 
     # For each parameter i
     for (i_idx, param_i) in enumerate(param_names)
-        @info "Computing Shapley effect for parameter: $param_i"
+        if !quiet
+            @info "Computing Shapley effect for parameter: $param_i"
+        end
 
         shapley_npv = 0.0
         shapley_lcoe = 0.0
@@ -1398,7 +1454,9 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
         sh_npv[param_i] = si_correct(sh_npv[param_i])
         sh_lcoe[param_i] = si_correct(sh_lcoe[param_i])
 
-        @info "  ✓ Shapley effect ($param_i): NPV=$(round(sh_npv[param_i], digits=4)), LCOE=$(round(sh_lcoe[param_i], digits=4))"
+        if !quiet
+            @info "  ✓ Shapley effect ($param_i): NPV=$(round(sh_npv[param_i], digits=4)), LCOE=$(round(sh_lcoe[param_i], digits=4))"
+        end
     end
 
     # Convert to named tuples
@@ -1415,7 +1473,9 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     # Verify efficiency property (sum should be ≈ 1.0)
     sum_npv = sum(values(sh_npv))
     sum_lcoe = sum(values(sh_lcoe))
-    @info "Shapley efficiency check - NPV sum: $(round(sum_npv, digits=4)), LCOE sum: $(round(sum_lcoe, digits=4))"
+    if !quiet
+        @info "Shapley efficiency check - NPV sum: $(round(sum_npv, digits=4)), LCOE sum: $(round(sum_lcoe, digits=4))"
+    end
 
     if abs(sum_npv - 1.0) > 0.1 || abs(sum_lcoe - 1.0) > 0.1
         @warn "Shapley effects do not sum to 1.0 (efficiency property violated). This may indicate numerical issues."
@@ -1451,7 +1511,8 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
         V_param_npv, V_param_lcoe = estimate_conditional_variance_V_S(
             pj, [param], outer_base, n_inner,
             opt_scaling, wacc, electricity_price_mean,
-            construction_time_range, coalition_id_param
+            construction_time_range, coalition_id_param;
+            quiet=quiet
         )
         println("  V({$param}) NPV:  $(V_param_npv) ($(round(100*V_param_npv/total_var_npv, digits=1))%)")
         println("  V({$param}) LCOE: $(V_param_lcoe) ($(round(100*V_param_lcoe/total_var_lcoe, digits=1))%)")
@@ -1463,13 +1524,15 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     V_wacc_npv, V_wacc_lcoe = estimate_conditional_variance_V_S(
         pj, [:wacc], outer_base, n_inner,
         opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, coalition_id_wacc
+        construction_time_range, coalition_id_wacc;
+        quiet=quiet
     )
     coalition_id_wacc_ct = hash([:wacc, :construction_time])
     V_wacc_ct_npv, V_wacc_ct_lcoe = estimate_conditional_variance_V_S(
         pj, [:wacc, :construction_time], outer_base, n_inner,
         opt_scaling, wacc, electricity_price_mean,
-        construction_time_range, coalition_id_wacc_ct
+        construction_time_range, coalition_id_wacc_ct;
+        quiet=quiet
     )
     println("  V({WACC}) LCOE: $(V_wacc_lcoe)")
     println("  V({WACC,CT}) LCOE: $(V_wacc_ct_lcoe)")

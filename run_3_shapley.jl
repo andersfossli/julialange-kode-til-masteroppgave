@@ -109,6 +109,9 @@ for p in eachindex(pjs)
           Sh_LCOE=shapley_results.sh_lcoe)
 
     @info("Completed $(p)/$(length(pjs)) reactors")
+
+    # Force garbage collection between reactors to prevent memory buildup
+    GC.gc()
 end
 
 # Output Shapley results
