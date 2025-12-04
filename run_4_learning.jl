@@ -48,6 +48,8 @@ scaling = [0.4, 0.7]  # Thesis: uniform distribution
 ##### Configuration: Load centralized settings #####
 include("config.jl")
 
+
+
 ##### LEARNING CURVE PARAMETERS #####
 
 # Cumulative units to simulate
