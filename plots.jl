@@ -228,7 +228,12 @@ end
 xlabel = "[EUR/MWh]";
 yticks = lcoe_plot_data[!,:technology];
 
-col = vcat(fill(1,8),fill(2,4),3,4,5);
+# Dynamic color assignment based on actual data size
+n_lcoe_data = nrow(lcoe_dat)  # Number of rows from lcoe_data.csv
+n_smr_summary = 3              # BWR & PWR SMRs, HTR SMRs, SFR SMRs
+
+# Assign colors: first n_lcoe_data rows get incrementing colors, last 3 get distinct colors
+col = vcat(collect(1:n_lcoe_data), (n_lcoe_data+1):(n_lcoe_data+n_smr_summary))
 colormap = [:darkgreen, :darkblue];
 
 fig_lcoe_comparison = Figure();
