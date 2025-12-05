@@ -1957,30 +1957,59 @@ function lcoe_comparison_horizontal(lcoe_results::DataFrame, pjs::Vector, opt_sc
              title = "LCOE Comparison: $(opt_scaling) Scaling")
     
     xlims!(ax, 10, 10000)
-    
+
+    # Define colors by reactor type and scale
+    function get_bar_color(scale::String, type::String)
+        if scale == "Large"
+            return :darkblue
+        elseif scale == "Micro"
+            return :steelblue
+        elseif scale == "SMR"
+            if type == "PWR" || type == "BWR"
+                return :orange
+            elseif type == "HTR"
+                return :yellow
+            elseif type == "SFR"
+                return :cyan
+            else
+                return :lightblue
+            end
+        elseif scale == "Benchmark"
+            if type == "Conventional"
+                return :darkgray
+            elseif type == "Renewable"
+                return :green
+            end
+        end
+        return :gray
+    end
+
     # Plot bars
     for (i, row) in enumerate(eachrow(all_data))
         y = i
-        
-        # P10-P90 range (light gray)
+
+        # Get color for this reactor
+        bar_color = get_bar_color(row.scale, row.type)
+
+        # P10-P90 range (light with color tint)
         barplot!(ax, [y], [row.p90 - row.p10],
                 offset = row.p10,
                 direction = :x,
-                color = (:gray, 0.3),
+                color = (bar_color, 0.3),
                 strokewidth = 0)
-        
-        # P25-P75 range (dark gray)
+
+        # P25-P75 range (darker with color)
         barplot!(ax, [y], [row.p75 - row.p25],
                 offset = row.p25,
                 direction = :x,
-                color = (:gray, 0.6),
+                color = (bar_color, 0.6),
                 strokewidth = 0)
-        
+
         # Median line (thick black)
         linesegments!(ax, [row.p50, row.p50], [y - 0.4, y + 0.4],
                      color = :black,
                      linewidth = 3)
-        
+
         # Add min/max values as text
         text!(ax, row.p10, y, text = string(round(Int, row.p10)),
              align = (:right, :center), offset = (-5, 0), fontsize = 8)
@@ -2065,10 +2094,12 @@ function shapley_heatmap_threepanel(shapley_results::DataFrame, pjs::Vector)
                  xticklabelrotation = π/4,
                  yticks = (1:4, ["WACC", "Construction Time", "Load Factor", "Investment"]))
         
+        # Use same colormap as Sobol sensitivity plots (matching thesis style)
+        # Gradient from light (low values) to dark (high values)
         hm = heatmap!(ax, 1:n_reactors, 1:n_vars, shapley_matrix',
-                     colormap = :Blues,
+                     colormap = :RdYlBu_9,  # Red-Yellow-Blue gradient matching Sobol style
                      colorrange = (0.0, 1.0))
-        
+
         # Add numerical values
         for i in 1:n_reactors
             for j in 1:n_vars
@@ -2077,7 +2108,7 @@ function shapley_heatmap_threepanel(shapley_results::DataFrame, pjs::Vector)
                      text = string(round(val, digits=2)),
                      align = (:center, :center),
                      fontsize = 10,
-                     color = val > 0.5 ? :white : :black)
+                     color = val > 0.4 ? :white : :black)  # Adjusted threshold for better contrast
             end
         end
         
@@ -2142,68 +2173,101 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
     # Learning parameters
     N_values = [1, 2, 4, 6, 8, 12, 16, 20, 24, 30]
     learning_rates = [0.05, 0.10, 0.15]  # Pessimistic, Base, Optimistic
+    lr_linestyles = Dict(0.05 => :solid, 0.10 => :dash, 0.15 => :dot)
     lr_labels = Dict(0.05 => "Pessimistic (5%)", 0.10 => "Base (10%)", 0.15 => "Optimistic (15%)")
-    lr_colors = Dict(0.05 => :red, 0.10 => :orange, 0.15 => :green)
-    
+
+    # Color by reactor type (not learning rate!)
+    reactor_type_colors = Dict(
+        "BWR" => :red,
+        "PWR" => :orange,
+        "HTR" => :yellow,
+        "SFR" => :cyan
+    )
+
     # Create grid layout
     n_reactors = length(smr_reactors)
     n_cols = min(3, n_reactors)
     n_rows = Int(ceil(n_reactors / n_cols))
-    
+
     fig = Figure(size=(400 * n_cols, 300 * n_rows))
-    
+
     # Try to load baseline LCOE data
     baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling.csv"
     baseline_lcoe = Dict{String, Float64}()
-    
+    baseline_std = Dict{String, Float64}()
+
     if isfile(baseline_file)
         summary_data = CSV.read(baseline_file, DataFrame)
         for (i, pj) in enumerate(smr_reactors)
             if "variable" in names(summary_data)
                 idx = findfirst(==(pj.name), summary_data.variable)
-                if !isnothing(idx) && "median" in names(summary_data)
-                    baseline_lcoe[pj.name] = summary_data[idx, "median"]
+                if !isnothing(idx)
+                    if "median" in names(summary_data)
+                        baseline_lcoe[pj.name] = summary_data[idx, "median"]
+                    end
+                    if "std" in names(summary_data)
+                        baseline_std[pj.name] = summary_data[idx, "std"]
+                    end
                 end
             end
         end
     end
-    
+
     for (idx, pj) in enumerate(smr_reactors)
         row = div(idx - 1, n_cols) + 1
         col = mod(idx - 1, n_cols) + 1
-        
+
         ax = Axis(fig[row, col],
                  title = pj.name,
                  xlabel = "Cumulative Units (N)",
                  ylabel = row == 1 && col == 1 ? "LCOE [EUR/MWh]" : "")
-        
-        # Get baseline FOAK LCOE
-        foak_lcoe = get(baseline_lcoe, pj.name, 100.0)  # Default to 100 if not found
-        
-        # Plot learning curves
+
+        # Get baseline FOAK LCOE and uncertainty
+        foak_lcoe = get(baseline_lcoe, pj.name, 100.0)
+        foak_std = get(baseline_std, pj.name, 20.0)  # Default std if not found
+
+        # Get color for this reactor type
+        reactor_color = get(reactor_type_colors, pj.type, :gray)
+
+        # Plot learning curves with confidence bands
         for LR in learning_rates
             lcoe_curve = Float64[]
-            
+            lcoe_lower = Float64[]  # 95% CI lower bound
+            lcoe_upper = Float64[]  # 95% CI upper bound
+
             for N in N_values
                 # Apply Wright's Law
                 multiplier = (1 - LR)^(log2(N))
                 noak_lcoe = foak_lcoe * multiplier
                 push!(lcoe_curve, noak_lcoe)
+
+                # Propagate uncertainty (simplified - assume std scales with mean)
+                noak_std = foak_std * multiplier
+                push!(lcoe_lower, noak_lcoe - 1.96 * noak_std)  # 95% CI
+                push!(lcoe_upper, noak_lcoe + 1.96 * noak_std)
             end
-            
+
+            # Plot confidence band for base case only (to avoid clutter)
+            if LR == 0.10
+                band!(ax, N_values, lcoe_lower, lcoe_upper,
+                     color = (reactor_color, 0.2))
+            end
+
+            # Plot line
             lines!(ax, N_values, lcoe_curve,
-                  color = lr_colors[LR],
+                  color = reactor_color,
+                  linestyle = lr_linestyles[LR],
                   linewidth = 2,
                   label = lr_labels[LR])
         end
-        
+
         # Add legend to first subplot
         if idx == 1
             axislegend(ax, position = :rt)
         end
     end
-    
-    Label(fig[0, :], "SMR Learning Curves: LCOE Reduction with Experience ($opt_scaling scaling)",
+
+    Label(fig[0, :], "SMR Learning Curves: LCOE Reduction with Experience (roulstone scaling)",
           fontsize = 18, font = "Noto Sans Bold")
     
     return fig
