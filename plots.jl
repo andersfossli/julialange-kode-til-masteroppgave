@@ -647,6 +647,10 @@ CSV.write("$outputpath/summary_by_region.csv", region_data)
 @info("GENERATING ADDITIONAL THESIS PLOTS")
 @info("="^80)
 
+# Define simulation parameters for plotting functions
+wacc = [0.04, 0.10]  # WACC range used in simulations
+electricity_price_mean = mean([52.2, 95.8])  # Mean electricity price
+
 # PLOT 1: LCOE Comparison Horizontal Bar Chart
 @info("Generating LCOE comparison horizontal bar chart...")
 fig_lcoe_horizontal = lcoe_comparison_horizontal(lcoe_results, pjs, opt_scaling)
