@@ -641,6 +641,40 @@ CSV.write("$outputpath/summary_by_region.csv", region_data)
 @info("  - summary_by_type.csv")
 @info("  - summary_by_region.csv")
 
+##### NEW THESIS PLOTS #####
+@info("")
+@info("="^80)
+@info("GENERATING ADDITIONAL THESIS PLOTS")
+@info("="^80)
+
+# PLOT 1: LCOE Comparison Horizontal Bar Chart
+@info("Generating LCOE comparison horizontal bar chart...")
+fig_lcoe_horizontal = lcoe_comparison_horizontal(lcoe_results, pjs, opt_scaling)
+save("$outputpath/fig-lcoe_comparison_horizontal-$opt_scaling.pdf", fig_lcoe_horizontal)
+@info("✓ Saved: fig-lcoe_comparison_horizontal-$opt_scaling.pdf")
+
+# PLOT 2: Shapley Sensitivity Three-Panel Heatmap
+if !isnothing(shapley_npv_results) && !isnothing(shapley_lcoe_results)
+    @info("Generating Shapley sensitivity three-panel heatmap...")
+    fig_shapley_heatmap = shapley_heatmap_threepanel(shapley_lcoe_results, pjs)
+    save("$outputpath/fig-shapley_heatmap_threepanel-$opt_scaling.pdf", fig_shapley_heatmap)
+    @info("✓ Saved: fig-shapley_heatmap_threepanel-$opt_scaling.pdf")
+else
+    @warn("Skipping Shapley heatmap (Shapley results not available)")
+end
+
+# PLOT 3: Learning Curves for SMR Reactors
+@info("Generating SMR learning curves...")
+fig_learning_smr = learning_curves_smr(pjs, wacc, electricity_price_mean, opt_scaling, outputpath)
+save("$outputpath/fig-learning_curves_smr-$opt_scaling.pdf", fig_learning_smr)
+@info("✓ Saved: fig-learning_curves_smr-$opt_scaling.pdf")
+
+# PLOT 4: Threshold Probability Curves
+@info("Generating threshold probability curves...")
+fig_threshold_prob = threshold_probability_curves(lcoe_results, pjs)
+save("$outputpath/fig-threshold_probability-$opt_scaling.pdf", fig_threshold_prob)
+@info("✓ Saved: fig-threshold_probability-$opt_scaling.pdf")
+
 @info("")
 @info("="^80)
 @info("PLOT GENERATION COMPLETE")
