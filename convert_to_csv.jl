@@ -221,14 +221,14 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
         "Type" => :reactor_type_raw,
         "Country" => :country,
         "Capacity (net MWe)" => :capacity_mwe,
-        "OCC (USD2020/kW)" => :occ_usd_per_kw,
+        "OCC (eur2020/kW)" => :occ_eur_per_kw,
         "planned Construction time (y)" => :construction_time_planned,
         "Actual / total build time (y)" => :construction_time_actual,
         "Lifetime (y)" => :lifetime_years,
         "Capacity factor (%)" => :capacity_factor_pct,
-        "OPEX fixed (USD2020/MW-yr)" => :opex_fixed_usd_per_mw_yr,
-        "OPEX variable (USD2020/MWh)" => :opex_variable_usd_per_mwh,
-        "Fuel (USD2020/MWh)" => :fuel_usd_per_mwh,
+        "OPEX fixed (eur2020/MW-yr)" => :opex_fixed_eur_per_mw_yr,
+        "OPEX variable (eur2025/MWh)" => :opex_variable_eur_per_mwh,
+        "Fuel (eur2020/MWh)" => :fuel_eur_per_mwh,
         "Scale" => :scale,
         "scale" => :scale,
         "Large medium micro" => :scale,
@@ -259,9 +259,9 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
 
     # Clean numeric columns
-    numeric_cols = [:capacity_mwe, :occ_usd_per_kw, :construction_time_planned,
+    numeric_cols = [:capacity_mwe, :occ_eur_per_kw, :construction_time_planned,
                     :construction_time_actual, :lifetime_years, :capacity_factor_pct,
-                    :opex_fixed_usd_per_mw_yr, :opex_variable_usd_per_mwh, :fuel_usd_per_mwh,
+                    :opex_fixed_eur_per_mw_yr, :opex_variable_eur_per_mwh, :fuel_eur_per_mwh,
                     :year]
 
     for col in numeric_cols
@@ -271,11 +271,11 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     end
 
     # Remove rows with missing critical data
-    df_work = dropmissing(df_work, [:name, :capacity_mwe, :occ_usd_per_kw])
+    df_work = dropmissing(df_work, [:name, :capacity_mwe, :occ_eur_per_kw])
 
     # Ensure numeric columns are numeric
     df_work = filter(row -> typeof(row.capacity_mwe) <: Number &&
-                           typeof(row.occ_usd_per_kw) <: Number, df_work)
+                           typeof(row.occ_eur_per_kw) <: Number, df_work)
 
     if nrow(df_work) == 0
         error("No valid data rows found after cleaning!")
@@ -325,7 +325,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :region] = country_to_region.(df_output[!, :country])
 
     # Column 6: investment (EUR/MW)
-    df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* 1000
+    df_output[!, :investment] = df_work[!, :occ_eur_per_kw] .* 1000
 
     # Column 7: plant_capacity (MWe)
     df_output[!, :plant_capacity] = df_work[!, :capacity_mwe]
@@ -362,22 +362,22 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     df_output[!, :loadfactor_upper] = loadfactor_upper
 
     # Column 13: operating_cost_fix
-    if :opex_fixed_usd_per_mw_yr in propertynames(df_work)
-        df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_usd_per_mw_yr], 500.0)
+    if :opex_fixed_eur_per_mw_yr in propertynames(df_work)
+        df_output[!, :operating_cost_fix] = coalesce.(df_work[!, :opex_fixed_eur_per_mw_yr], 500.0)
     else
         df_output[!, :operating_cost_fix] = fill(500.0, nrow(df_work))
     end
 
     # Column 14: operating_cost_variable
-    if :opex_variable_usd_per_mwh in propertynames(df_work)
-        df_output[!, :operating_cost_variable] = coalesce.(df_work[!, :opex_variable_usd_per_mwh], 2.3326)
+    if :opex_variable_eur_per_mwh in propertynames(df_work)
+        df_output[!, :operating_cost_variable] = coalesce.(df_work[!, :opex_variable_eur_per_mwh], 2.3326)
     else
         df_output[!, :operating_cost_variable] = fill(2.3326, nrow(df_work))
     end
 
     # Column 15: operating_cost_fuel
-    if :fuel_usd_per_mwh in propertynames(df_work)
-        df_output[!, :operating_cost_fuel] = coalesce.(df_work[!, :fuel_usd_per_mwh], 6.0)
+    if :fuel_eur_per_mwh in propertynames(df_work)
+        df_output[!, :operating_cost_fuel] = coalesce.(df_work[!, :fuel_eur_per_mwh], 6.0)
     else
         df_output[!, :operating_cost_fuel] = fill(6.0, nrow(df_work))
     end
