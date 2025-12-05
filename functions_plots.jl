@@ -1882,7 +1882,6 @@ Create horizontal bar chart comparing LCOE distributions across reactor types an
 - `Figure`: Makie figure object
 """
 function lcoe_comparison_horizontal(lcoe_results::DataFrame, pjs::Vector, opt_scaling::String)
-    using Statistics
     
     # Calculate percentiles for each reactor
     reactor_stats = DataFrame(
@@ -2026,7 +2025,6 @@ Create three-panel heatmap showing Shapley sensitivity indices by reactor scale.
 - `Figure`: Makie figure object
 """
 function shapley_heatmap_threepanel(shapley_results::DataFrame, pjs::Vector)
-    using Statistics
     
     # Group reactors by scale
     scales = ["Micro", "SMR", "Large"]
@@ -2051,10 +2049,10 @@ function shapley_heatmap_threepanel(shapley_results::DataFrame, pjs::Vector)
             push!(reactor_names, pj.name)
             col_name = pj.name
             if col_name in names(shapley_results)
-                shapley_matrix[1, j] = shapley_results[findfirst(=="wacc"), shapley_results.var), col_name]
-                shapley_matrix[2, j] = shapley_results[findfirst(=="construction_time"), shapley_results.var), col_name]
-                shapley_matrix[3, j] = shapley_results[findfirst(=="capacity factor"), shapley_results.var), col_name]
-                shapley_matrix[4, j] = shapley_results[findfirst(=="scaling"), shapley_results.var), col_name]
+                shapley_matrix[1, j] = shapley_results[findfirst(==("wacc"), shapley_results.var), col_name]
+                shapley_matrix[2, j] = shapley_results[findfirst(==("construction_time"), shapley_results.var), col_name]
+                shapley_matrix[3, j] = shapley_results[findfirst(==("capacity factor"), shapley_results.var), col_name]
+                shapley_matrix[4, j] = shapley_results[findfirst(==("scaling"), shapley_results.var), col_name]
             end
         end
         
@@ -2132,7 +2130,6 @@ Wright's Law: C_NOAK = C_FOAK × (1 - LR)^(log₂(N))
 """
 function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_mean::Float64,
                               opt_scaling::String, outputpath::String)
-    using Statistics, CSV, DataFrames
     
     # Filter SMR reactors only
     smr_reactors = [pj for pj in pjs if pj.scale == "SMR"]
@@ -2233,7 +2230,6 @@ Create S-curves showing probability of LCOE exceeding various thresholds.
 - `Figure`: Makie figure object
 """
 function threshold_probability_curves(lcoe_results::DataFrame, pjs::Vector)
-    using Statistics
     
     fig = Figure(size=(1000, 700))
     ax = Axis(fig[1, 1],
