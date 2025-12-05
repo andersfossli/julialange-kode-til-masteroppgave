@@ -1,8 +1,84 @@
 ##### plots #####
-# requires results from the main file
+# Standalone plotting script - reads results from CSV files
+# Can be run independently after simulations have been completed
 
+##### Load dependencies #####
+using Pkg
+Pkg.activate(pwd())
 using CairoMakie
+using CSV
+using DataFrames
+using Statistics
+
+inputpath = "_input"
+outputpath = "_output"
+
+@info("="^80)
+@info("GENERATING PLOTS FROM SIMULATION RESULTS")
+@info("="^80)
+
+##### Load core functions and data #####
+@info("Loading functions and data")
+include("functions.jl")
+include("data.jl")
+include("config.jl")
 include("functions_plots.jl")
+
+##### Load simulation results from CSV files #####
+@info("Loading simulation results from CSV files")
+
+# Check if required files exist
+required_files = [
+    "$outputpath/mcs-npv_results-$opt_scaling.csv",
+    "$outputpath/mcs-npv_summary-$opt_scaling.csv",
+    "$outputpath/mcs-lcoe_results-$opt_scaling.csv",
+    "$outputpath/mcs-lcoe_summary-$opt_scaling.csv"
+]
+
+missing_files = filter(f -> !isfile(f), required_files)
+if !isempty(missing_files)
+    @error("Missing required result files. Please run simulations first:")
+    for f in missing_files
+        @error("  - $f")
+    end
+    error("Cannot generate plots without simulation results")
+end
+
+# Load Monte Carlo results
+npv_results = CSV.read("$outputpath/mcs-npv_results-$opt_scaling.csv", DataFrame)
+npv_summary = CSV.read("$outputpath/mcs-npv_summary-$opt_scaling.csv", DataFrame)
+lcoe_results = CSV.read("$outputpath/mcs-lcoe_results-$opt_scaling.csv", DataFrame)
+lcoe_summary = CSV.read("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", DataFrame)
+
+@info("✓ Loaded Monte Carlo results")
+
+# Load sensitivity indices (optional - some plots will be skipped if missing)
+if isfile("$outputpath/si-npv_results-$opt_scaling.csv")
+    si_npv_results = CSV.read("$outputpath/si-npv_results-$opt_scaling.csv", DataFrame)
+    si_lcoe_results = CSV.read("$outputpath/si-lcoe_results-$opt_scaling.csv", DataFrame)
+    @info("✓ Loaded Sobol sensitivity results")
+else
+    @warn("Sobol sensitivity results not found - skipping sensitivity plots")
+    @warn("Run run_2_sensitivity.jl to generate these results")
+    si_npv_results = nothing
+    si_lcoe_results = nothing
+end
+
+# Load Shapley results (optional)
+if isfile("$outputpath/shapley-npv_results-$opt_scaling.csv")
+    shapley_npv_results = CSV.read("$outputpath/shapley-npv_results-$opt_scaling.csv", DataFrame)
+    shapley_lcoe_results = CSV.read("$outputpath/shapley-lcoe_results-$opt_scaling.csv", DataFrame)
+    @info("✓ Loaded Shapley sensitivity results")
+else
+    @warn("Shapley sensitivity results not found - some plots may be skipped")
+    @warn("Run run_3_shapley.jl to generate these results")
+    shapley_npv_results = nothing
+    shapley_lcoe_results = nothing
+end
+
+@info("="^80)
+@info("STARTING PLOT GENERATION")
+@info("="^80)
 
 ##### comparison plot for Roulstone vs. Rothwell scaling #####
 
@@ -104,13 +180,19 @@ save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
 # requires sensitvity results
 # Note: si_plot() was replaced by si_plot_by_scale() below for better organization
 
-# New: Grouped by scale (Micro/SMR/Large)
-# Use Base.invokelatest to avoid Julia 1.12 world age issues
-fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
-fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
+if !isnothing(si_npv_results) && !isnothing(si_lcoe_results)
+    @info("Generating sensitivity index plots")
+    # New: Grouped by scale (Micro/SMR/Large)
+    # Use Base.invokelatest to avoid Julia 1.12 world age issues
+    fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
+    fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
 
-save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
-save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
+    save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
+    save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
+    @info("✓ Sensitivity index plots saved")
+else
+    @warn("Skipping sensitivity index plots (data not available)")
+end
 
 ##### lcoe comparison plot #####
 # requires results for all 15 reactor concepts
@@ -553,3 +635,9 @@ CSV.write("$outputpath/summary_by_region.csv", region_data)
 @info("  - summary_by_scale.csv")
 @info("  - summary_by_type.csv")
 @info("  - summary_by_region.csv")
+
+@info("")
+@info("="^80)
+@info("PLOT GENERATION COMPLETE")
+@info("="^80)
+@info("All plots saved to $outputpath/")
