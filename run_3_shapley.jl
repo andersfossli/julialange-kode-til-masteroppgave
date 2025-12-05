@@ -29,7 +29,7 @@ include("data.jl")
 # and caps base variance samples at min(n, 10000) for efficiency
 n = Int64(100000)  # Passed but capped internally to avoid wasteful base samples
 
-# wholesale electricity price [USD/MWh]
+# wholesale electricity price [EUR/MWh]
 electricity_price_mean = mean([52.2, 95.8])
 
 # weighted average cost of capital (WACC)

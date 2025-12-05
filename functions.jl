@@ -7,26 +7,26 @@ using Distributions, LinearAlgebra, Combinatorics, Random
 The project struct is a mutable struct that represents an investment project. It has the following fields:
     name: a string that specifies the investment concept.
     type: a string that specifies the investment type.
-    investment: a floating-point number that represents the investment estimate by the manufacturer in USD/MW.
+    investment: a floating-point number that represents the investment estimate by the manufacturer in EUR/MW.
     plant_capacity: a floating-point number that represents the plant capacity in MW.
     learning_factor: a floating-point number that represents the learning factor.
     time: an abstract vector that represents the project time in years, which includes the construction time and plant lifetime.
     loadfactor: an abstract vector that represents the load factor. It includes the lower and upper bounds of a random variable.
-    operating_cost: an abstract vector that represents the O&M cost, including O&M fix cost in USD/MW, O&M variable cost in USD/MWh, and fuel cost in USD/MWh.
-    reference_pj: an abstract vector that represents the reference reactor, which includes investment costs in USD/MW and plant capacity in MW.
+    operating_cost: an abstract vector that represents the O&M cost, including O&M fix cost in EUR/MW, O&M variable cost in EUR/MWh, and fuel cost in EUR/MWh.
+    reference_pj: an abstract vector that represents the reference reactor, which includes investment costs in EUR/MW and plant capacity in MW.
 """
 mutable struct project
     name::String                    # investment concept
     type::String                    # investment type
     scale::String                   # reactor scale (Micro/SMR/Large)
     region::String                  # geographic region (East Asia/Western/etc.)
-    investment::Float64             # investment estimate by manufacturer [USD/MW]
+    investment::Float64             # investment estimate by manufacturer [EUR/MW]
     plant_capacity::Float64         # plant capacity [MW]
     learning_factor::Float64        # learning factor
     time::AbstractVector            # project time [years] (construction time, plant lifetime)
     loadfactor::AbstractVector      # load factor, lower, and upper bound of rand variable
-    operating_cost::AbstractVector  # O&M cost (O&M fix cost [USD/MW], O&M variable cost [USD/MWh], fuel cost [USD/MWh])
-    reference_pj::AbstractVector    # reference reactor (investment costs [USD/MW], plant capacity [MW])
+    operating_cost::AbstractVector  # O&M cost (O&M fix cost [EUR/MW], O&M variable cost [EUR/MWh], fuel cost [EUR/MWh])
+    reference_pj::AbstractVector    # reference reactor (investment costs [EUR/MW], plant capacity [MW])
 end
 
 ##### defining functions #####
@@ -96,7 +96,7 @@ This allows fair comparison across different reactor sizes (Micro/SMR/Large).
 
 # Arguments
 - `p::Float64`: Actual reactor capacity [MWe]
-- `occ::Float64`: Raw overnight capital cost [USD/kW or USD/MW depending on context]
+- `occ::Float64`: Raw overnight capital cost [EUR/kW or EUR/MW depending on context]
 - `p_ref::Float64=1200.0`: Reference capacity for normalization [MWe] (default: typical large PWR)
 - `beta::Float64=0.20`: Scaling exponent (economies of scale parameter)
   - β = 0.15: Weak economies of scale
@@ -115,15 +115,15 @@ This removes the size penalty, making costs comparable across scales.
 
 # Examples
 ```julia
-# 300 MW SMR with OCC = 6000 USD/kW
+# 300 MW SMR with OCC = 6000 EUR/kW
 # Normalize to 1200 MW reference
-carelli_occ(300.0, 6000.0)  # Returns ~4757 USD/kW (removes small-scale penalty)
+carelli_occ(300.0, 6000.0)  # Returns ~4757 EUR/kW (removes small-scale penalty)
 
-# 1200 MW Large reactor with OCC = 5500 USD/kW
-carelli_occ(1200.0, 5500.0)  # Returns 5500 USD/kW (already at reference)
+# 1200 MW Large reactor with OCC = 5500 EUR/kW
+carelli_occ(1200.0, 5500.0)  # Returns 5500 EUR/kW (already at reference)
 
-# 50 MW Micro with OCC = 8000 USD/kW, strong scaling (β=0.25)
-carelli_occ(50.0, 8000.0, beta=0.25)  # Returns ~5040 USD/kW
+# 50 MW Micro with OCC = 8000 EUR/kW, strong scaling (β=0.25)
+carelli_occ(50.0, 8000.0, beta=0.25)  # Returns ~5040 EUR/kW
 ```
 
 # References
@@ -386,27 +386,27 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
                 if !quiet
                     @info("using manufacturer estimates")
                 end
-                # deterministic investment cost based on manufacturer estimates [USD]
+                # deterministic investment cost based on manufacturer estimates [EUR]
                 rand_investment = pj.investment * pj.plant_capacity * ones(n) * soak_factor
             elseif opt_scaling == "roulstone"
                 if !quiet
                     @info("using Roulstone scaling")
                 end
-                # random investment cost based on Roulstone [USD]
+                # random investment cost based on Roulstone [EUR]
                 rand_scaling = scaling[1] .+ (scaling[2] - scaling[1]) .* rand(n,1)
                 rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor * (pj.plant_capacity/pj.reference_pj[2]) .^ (rand_scaling)
             elseif opt_scaling == "rothwell"
                 if !quiet
                     @info("using Rothwell scaling")
                 end
-                # random investment cost based on Rothwell [USD]
+                # random investment cost based on Rothwell [EUR]
                 rand_scaling = 2^(scaling[1]-1) .+ (2^(scaling[2]-1) - 2^(scaling[1]-1)) .* rand(n,1)
                 rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(rand_scaling) ./ log(2))
             elseif opt_scaling == "uniform"
                 if !quiet
                     @info("using uniform scaling")
                 end
-                # random investment cost uniform [USD]
+                # random investment cost uniform [EUR]
                 investment_scaled = pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ (scaling)
                 rand_investment = investment_scaled[1] .+ (investment_scaled[2]-investment_scaled[1]) .* rand(n,1) .* soak_factor
             elseif opt_scaling == "carelli"
@@ -418,18 +418,18 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
                 p_ref = 1200.0  # Reference capacity [MWe]
                 beta = 0.20     # Scaling exponent (economies of scale parameter)
 
-                # Get raw OCC from manufacturer estimate [USD/kW]
-                raw_occ = pj.investment  # Already in USD/kW
+                # Get raw OCC from manufacturer estimate [EUR/kW]
+                raw_occ = pj.investment  # Already in EUR/kW
 
                 # Apply Carelli normalization
                 occ_si = carelli_occ(pj.plant_capacity, raw_occ, p_ref=p_ref, beta=beta)
 
-                # Convert back to total investment [USD]
+                # Convert back to total investment [EUR]
                 rand_investment = occ_si * pj.plant_capacity * ones(n) * soak_factor
 
                 if !quiet
                     @info("  Carelli parameters: P=$(pj.plant_capacity) MWe, P_ref=$p_ref MWe, β=$beta")
-                    @info("  Raw OCC: $(round(raw_occ, digits=0)) USD/kW → SI-OCC: $(round(occ_si, digits=0)) USD/kW")
+                    @info("  Raw OCC: $(round(raw_occ, digits=0)) EUR/kW → SI-OCC: $(round(occ_si, digits=0)) EUR/kW")
                 end
             else
                 @error("Option for the scaling method is unknown.")
@@ -480,9 +480,9 @@ function mc_run(n::Int64, pj::project, rand_vars)
 
     # project data
         # O&M costs
-            # fixed O&M costs [USD/year]
+            # fixed O&M costs [EUR/year]
             operating_cost_fix = pj.plant_capacity * pj.operating_cost[1]
-            # variable O&M costs [USD/MWh]
+            # variable O&M costs [EUR/MWh]
             operating_cost_variable = pj.operating_cost[2] + pj.operating_cost[3]
 
     # initialize variables
@@ -584,7 +584,7 @@ This function performs a single deterministic calculation (not Monte Carlo) usin
 - `elec_price_range::Vector`: [min, max] electricity price range
 
 # Returns
-- Float64: Deterministic LCOE value in USD/MWh
+- Float64: Deterministic LCOE value in EUR/MWh
 
 This represents the vendor's claimed LCOE based on their stated overnight construction cost,
 serving as a reference point for learning curve analysis.
@@ -628,7 +628,7 @@ function calculate_vendor_baseline_lcoe(pj::project, wacc_range::Vector, elec_pr
     # Calculate LCOE
     vendor_lcoe = sum(disc_cash_out) / sum(disc_electricity)
 
-    @info("Vendor baseline LCOE for $(pj.name): $(round(vendor_lcoe, digits=2)) USD/MWh")
+    @info("Vendor baseline LCOE for $(pj.name): $(round(vendor_lcoe, digits=2)) EUR/MWh")
 
     return vendor_lcoe
 end
@@ -1641,10 +1641,10 @@ The gen_scaled_investment function takes in two arguments, scaling and pj, and r
 
     Output
         scaled_investment: A vector of scaled investment costs based on the project information and the given scaling parameter. The vector contains four parts:
-            The deterministic investment cost based on manufacturer estimates in USD per MW.
-            The range (lower and upper bound) of scaled investment cost based on Roulstone in USD per MW.
-            The range (lower and upper bound) of scaled investment cost based on Rothwell in USD per MW.
-            The scaled investment cost based on Carelli (fixed β = 0.20) in USD per MW.
+            The deterministic investment cost based on manufacturer estimates in EUR per MW.
+            The range (lower and upper bound) of scaled investment cost based on Roulstone in EUR per MW.
+            The range (lower and upper bound) of scaled investment cost based on Rothwell in EUR per MW.
+            The scaled investment cost based on Carelli (fixed β = 0.20) in EUR per MW.
 
     Note: SOAK discount (learning factor) is NOT applied in this function. Learning is handled separately in scenario simulations via the apply_learning parameter in gen_rand_vars().
 """
@@ -1653,13 +1653,13 @@ function gen_scaled_investment(scaling::Vector, pj::project)
     # generation of project specific scaled investment cost ranges
     # note that the scaling parameter here are converted such that Rothwell and Roulstone coincide.
     # IMPORTANT: SOAK discount (1-learning_factor) removed - learning is applied separately in scenario simulations
-        # deterministic investment cost based on manufacturer estimates [USD/MW]
+        # deterministic investment cost based on manufacturer estimates [EUR/MW]
         scaled_investment = pj.investment
-        # scaled investment cost based on Roulstone [USD/MW]
+        # scaled investment cost based on Roulstone [EUR/MW]
         scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ scaling / pj.plant_capacity)
-        # scaled investment cost based on Rothwell [USD/MW]
+        # scaled investment cost based on Rothwell [EUR/MW]
         scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(scaling) ./ log(2)) / pj.plant_capacity)
-        # scaled investment cost based on Carelli (fixed β = 0.20) [USD/MW]
+        # scaled investment cost based on Carelli (fixed β = 0.20) [EUR/MW]
         carelli_scaling = 0.20
         scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) ^ carelli_scaling / pj.plant_capacity)
 

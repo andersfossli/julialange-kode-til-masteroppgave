@@ -27,7 +27,7 @@ include("data.jl")
 # number of Monte Carlo runs
 n = Int64(1_000_000)  # PRODUCTION: 1M samples for publication-quality estimates (matches Uncertainties report)
 
-# wholesale electricity price [USD/MWh] - now fixed at mean value
+# wholesale electricity price [EUR/MWh] - now fixed at mean value
 electricity_price_mean = mean([52.2, 95.8])
 
 # weighted average cost of capital (WACC), lower and upper bound
@@ -73,7 +73,7 @@ for p in eachindex(pjs)
     # run Monte Carlo simulation
     results = investment_simulation(pjs[p], rand_vars)
 
-    # normalize NPV to plant capacity [USD/MW]
+    # normalize NPV to plant capacity [EUR/MW]
     npv_results.res = vec(results[1] / pjs[p].plant_capacity)
     rename!(npv_results, :res => pjs[p].name)
     lcoe_results.res = vec(results[2])

@@ -89,22 +89,28 @@ end
     get_reference_values(reactor_type)
 
 Get reference project values based on reactor type
+
+Reference reactors (EUR2025):
+- Clinton-1 (BWR):     950 MWe,  9,735,049 EUR/MW
+- Vogtle-3 (PWR):    1,117 MWe,  8,603,440 EUR/MW
+- Fort St. Vrain (HTR): 330 MWe, 7,200,629 EUR/MW
+- Superphénix (SFR): 1,200 MWe, 5,484,047 EUR/MW
 """
 function get_reference_values(reactor_type)
     if reactor_type == "PWR"
-        return (investment=8600000, capacity=1117)
+        return (investment=8603440, capacity=1117)  # Vogtle-3
     elseif reactor_type == "BWR"
-        return (investment=9722604, capacity=935)
+        return (investment=9735049, capacity=950)   # Clinton-1
     elseif reactor_type == "HTR"
-        return (investment=7195125, capacity=330)
+        return (investment=7200629, capacity=330)   # Fort St. Vrain
     elseif reactor_type == "SFR"
-        return (investment=5200000, capacity=1250)
+        return (investment=5484047, capacity=1200)  # Superphénix
     elseif reactor_type == "MSR"
-        return (investment=8600000, capacity=1000)
+        return (investment=8603440, capacity=1000)  # Default: Vogtle-3 reference
     elseif reactor_type == "LFR"
-        return (investment=5200000, capacity=1250)
+        return (investment=5484047, capacity=1250)  # Default: Superphénix reference
     else
-        return (investment=8600000, capacity=1000)
+        return (investment=8603440, capacity=1000)  # Default: Vogtle-3 reference
     end
 end
 
@@ -318,7 +324,7 @@ function extract_reactor_data(excel_file::String; output_csv::String="_input/rea
     # Column 5: region
     df_output[!, :region] = country_to_region.(df_output[!, :country])
 
-    # Column 6: investment (USD/MW)
+    # Column 6: investment (EUR/MW)
     df_output[!, :investment] = df_work[!, :occ_usd_per_kw] .* 1000
 
     # Column 7: plant_capacity (MWe)

@@ -29,7 +29,7 @@ include("data.jl")
 # number of Monte Carlo runs per scenario
 n = Int64(100_000)  # 100k samples per learning scenario
 
-# wholesale electricity price [USD/MWh] - fixed at mean value
+# wholesale electricity price [EUR/MWh] - fixed at mean value
 electricity_price_mean = mean([52.2, 95.8])
 
 # weighted average cost of capital (WACC), lower and upper bound

@@ -27,7 +27,7 @@ include("data.jl")
 # number of Monte Carlo runs
 n = Int64(100000)  # PRODUCTION: 100k samples for robust estimates
 
-# wholesale electricity price [USD/MWh]
+# wholesale electricity price [EUR/MWh]
 electricity_price_mean = mean([52.2, 95.8])
 
 # weighted average cost of capital (WACC)

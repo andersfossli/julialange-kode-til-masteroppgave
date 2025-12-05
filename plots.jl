@@ -175,7 +175,7 @@ save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_his
 # Shows cumulative probability: P(LCOE ≤ threshold) by scale
 # Use Base.invokelatest to avoid Julia 1.12 world age issues
 
-# Define thresholds (0 to 300 USD/MWh in steps of 20)
+# Define thresholds (0 to 300 EUR/MWh in steps of 20)
 lcoe_thresholds = collect(0.0:20.0:300.0)  # Float64 values required
 fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
@@ -306,7 +306,7 @@ if :year in propertynames(pjs_dat)
     df_large = filter(row -> row.scale == "Large", pjs_dat)
 
     if nrow(df_large) > 0
-        # Calculate OCC (USD/kW) from investment (USD/MW)
+        # Calculate OCC (EUR/kW) from investment (EUR/MW)
         df_large.occ = df_large.investment ./ 1000
 
         # Group by Western vs Asian
