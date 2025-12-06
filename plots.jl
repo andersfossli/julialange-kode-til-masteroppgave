@@ -170,8 +170,8 @@ save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison
 ##### boxplots Monte Carlo simulation results #####
 # requires results for all 15 reactor concepts
 
-fig_mcs_npv = mcs_plot(npv_results, "NPV", "[EUR/MW]")
-fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[EUR/MWh]")
+fig_mcs_npv = mcs_plot(npv_results, "NPV", "[EUR2025/MW]", pjs)
+fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[EUR2025/MWh]", pjs)
 
 save("$outputpath/fig-mcs_npv-$opt_scaling.pdf", fig_mcs_npv);
 save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
@@ -225,7 +225,7 @@ elseif opt_scaling == "uniform"
 else
     @error("scaling not defined")
 end
-xlabel = "[EUR/MWh]";
+xlabel = "[EUR2025/MWh]";
 yticks = lcoe_plot_data[!,:technology];
 
 # Dynamic color assignment based on actual data size
@@ -242,8 +242,23 @@ ax_lcoe = Axis(fig_lcoe_comparison[1,1], yticks = (1:length(yticks), yticks), xs
 xlims!(10, 25000)
 
 rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!,2], lcoe_plot_data[!,3], linewidth = 6, whiskerwidth = 8, direction = :x, color = col);
-hlines!(ax_lcoe, [8.5, 12.5], linestyle = :dash, color = :red);
-text!([15000,15000,16], [4, 10.5, 14]; text = ["Renewables\n(LAZARD)", "Conventionals\n(LAZARD)", "SMR Tech.\n($plot_scaling)"], align = (:center, :center), justification = :center, rotation = π/2);
+
+# Calculate separator positions based on actual data
+n_renewables = 7  # PV×3, Geothermal, Wind×3
+n_conventionals = 4  # Gas-Peaking, Nuclear, Coal, Gas-CombinedCycle
+renewables_end = n_renewables
+conventionals_end = n_renewables + n_conventionals
+
+hlines!(ax_lcoe, [renewables_end + 0.5, conventionals_end + 0.5], linestyle = :dash, color = :red);
+
+# Calculate text positions for category labels
+renewables_center = renewables_end / 2
+conventionals_center = renewables_end + (n_conventionals / 2) + 0.5
+smr_center = conventionals_end + 2
+
+text!([15000, 15000, 16], [renewables_center, conventionals_center, smr_center];
+      text = ["Renewables\n(LAZARD 2025)", "Conventionals\n(LAZARD 2025)", "SMR Tech.\n($plot_scaling)"],
+      align = (:center, :center), justification = :center, rotation = π/2);
 
 text!(lcoe_plot_data[!,2], 1:length(yticks), text = string.(round.(Int,lcoe_plot_data[!,2])), align = (:right, :center), offset = (-10,0));
 text!(lcoe_plot_data[!,3], 1:length(yticks), text = string.(round.(Int,lcoe_plot_data[!,3])), align = (:left, :center), offset = (10,0));
@@ -657,21 +672,41 @@ fig_lcoe_horizontal = lcoe_comparison_horizontal(lcoe_results, pjs, opt_scaling)
 save("$outputpath/fig-lcoe_comparison_horizontal-$opt_scaling.pdf", fig_lcoe_horizontal)
 @info("✓ Saved: fig-lcoe_comparison_horizontal-$opt_scaling.pdf")
 
-# PLOT 2: Shapley Sensitivity Three-Panel Heatmap
+# PLOT 2: Shapley Sensitivity Heatmap (matching Sobol style)
 if !isnothing(shapley_npv_results) && !isnothing(shapley_lcoe_results)
-    @info("Generating Shapley sensitivity three-panel heatmap...")
-    fig_shapley_heatmap = shapley_heatmap_threepanel(shapley_lcoe_results, pjs)
+    @info("Generating Shapley sensitivity heatmap (matching Sobol style)...")
+    fig_shapley_heatmap = shapley_plot_by_scale(shapley_lcoe_results, "Shapley Sensitivity Indices (LCOE)", pjs)
     save("$outputpath/fig-shapley_heatmap_threepanel-$opt_scaling.pdf", fig_shapley_heatmap)
     @info("✓ Saved: fig-shapley_heatmap_threepanel-$opt_scaling.pdf")
 else
     @warn("Skipping Shapley heatmap (Shapley results not available)")
 end
 
-# PLOT 3: Learning Curves for SMR Reactors
-@info("Generating SMR learning curves...")
-fig_learning_smr = learning_curves_smr(pjs, wacc, electricity_price_mean, opt_scaling, outputpath)
-save("$outputpath/fig-learning_curves_smr-$opt_scaling.pdf", fig_learning_smr)
-@info("✓ Saved: fig-learning_curves_smr-$opt_scaling.pdf")
+# PLOT 3: Learning Curves - Separate plots for each scale
+@info("Generating learning curves for all scales...")
+
+# Create separate learning curve plots for each scale
+large_reactors = [pj for pj in pjs if pj.scale == "Large"]
+micro_reactors = [pj for pj in pjs if pj.scale == "Micro"]
+smr_reactors_only = [pj for pj in pjs if pj.scale == "SMR"]
+
+if !isempty(large_reactors)
+    fig_learning_large = learning_curves_smr(large_reactors, wacc, electricity_price_mean, opt_scaling, outputpath)
+    save("$outputpath/fig-learning_curves_large-$opt_scaling.pdf", fig_learning_large)
+    @info("✓ Saved: fig-learning_curves_large-$opt_scaling.pdf")
+end
+
+if !isempty(micro_reactors)
+    fig_learning_micro = learning_curves_smr(micro_reactors, wacc, electricity_price_mean, opt_scaling, outputpath)
+    save("$outputpath/fig-learning_curves_micro-$opt_scaling.pdf", fig_learning_micro)
+    @info("✓ Saved: fig-learning_curves_micro-$opt_scaling.pdf")
+end
+
+if !isempty(smr_reactors_only)
+    fig_learning_smr = learning_curves_smr(smr_reactors_only, wacc, electricity_price_mean, opt_scaling, outputpath)
+    save("$outputpath/fig-learning_curves_smr-$opt_scaling.pdf", fig_learning_smr)
+    @info("✓ Saved: fig-learning_curves_smr-$opt_scaling.pdf")
+end
 
 # PLOT 4: Threshold Probability Curves
 @info("Generating threshold probability curves...")

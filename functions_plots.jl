@@ -691,7 +691,17 @@ function si_plot_by_scale(si_results, title::String, pjs::Vector)
     # Filter SI results
     si_s = filter(:si => index -> index == "S", si_results)
     si_st = filter(:si => index -> index == "ST", si_results)
-    xticks = si_s.var
+
+    # Map variable names to display names (matching Shapley plot)
+    var_display_names = Dict(
+        "wacc" => "WACC",
+        "construction_time" => "Construction Time",
+        "capacity factor" => "Capacity Factor",
+        "scaling" => "Investment OCC"
+    )
+
+    xticks_raw = si_s.var
+    xticks = [get(var_display_names, var, var) for var in xticks_raw]
 
     # Create figure with 3 scale groups side by side
     fig = Figure(size = (1800, 600))
@@ -798,12 +808,21 @@ function shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
         end
     end
 
-    # Extract variable names (should be: wacc, construction_time, loadfactor, investment)
-    xticks = shapley_results.var
+    # Extract variable names and map to display names
+    var_display_names = Dict(
+        "wacc" => "WACC",
+        "construction_time" => "Construction Time",
+        "capacity factor" => "Capacity Factor",
+        "scaling" => "Investment OCC"
+    )
+
+    xticks_raw = shapley_results.var
+    xticks = [get(var_display_names, var, var) for var in xticks_raw]
 
     # Create figure with 3 scale groups side by side
     # Single row (unlike Sobol which has S and ST)
-    fig = Figure(size = (1800, 400))
+    # Increased width to 2200 to give more space to SMR panel
+    fig = Figure(size = (2200, 400))
     scale_order = ["Micro", "SMR", "Large"]
     # Use :deep colormap (same as old si_plot) for consistency
     colormap_shapley = :deep
@@ -839,6 +858,25 @@ function shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
         ax_shapley.xticklabelalign = (:right, :center)
         ax_shapley.yticklabelsize = 8  # Smaller labels for readability
 
+        # Identify reactor types for color coding
+        reactor_types_in_scale = []
+        type_indicator_colors_map = Dict(
+            "PWR" => RGBf(0.9, 0.5, 0.1),    # Orange
+            "BWR" => RGBf(0.9, 0.5, 0.1),    # Orange (same as PWR)
+            "HTR" => RGBf(0.9, 0.8, 0.1),    # Yellow
+            "SFR" => RGBf(0.1, 0.7, 0.7),    # Teal
+            "MSR" => RGBf(0.6, 0.6, 0.6)     # Gray
+        )
+
+        for reactor_name in available_reactors
+            pj_idx = findfirst(p -> p.name == reactor_name, pjs)
+            if !isnothing(pj_idx)
+                push!(reactor_types_in_scale, pjs[pj_idx].type)
+            else
+                push!(reactor_types_in_scale, "Unknown")
+            end
+        end
+
         hmap_shapley = heatmap!(ax_shapley, data_shapley,
                                 colormap = colormap_shapley,
                                 colorrange = (0, 1))
@@ -851,6 +889,68 @@ function shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
                   color = txtcolor, fontsize = 10, align = (:center, :center))
         end
 
+        # Create a separate axis for the reactor type indicator bars in the white space
+        ax_type_indicator = Axis(gl[1, 3],
+                                 yticks = (1:length(yticks_scale), fill("", length(yticks_scale))),
+                                 limits = (0, 1, 0.5, length(yticks_scale) + 0.5))
+
+        # Hide all decorations except the colored bars
+        hidedecorations!(ax_type_indicator)
+        hidespines!(ax_type_indicator)
+
+        # Draw colored indicator bars for each reactor type
+        for (j, rtype) in enumerate(reactor_types_in_scale)
+            bar_color = get(type_indicator_colors_map, rtype, RGBf(0.8, 0.8, 0.8))
+            # Draw a thick colored bar spanning the width of this axis
+            poly!(ax_type_indicator,
+                  Point2f[(0, j-0.4), (1, j-0.4), (1, j+0.4), (0, j+0.4)],
+                  color = bar_color,
+                  strokewidth = 0)
+        end
+
+        # Add type labels next to the indicator bars
+        type_label_colors_map = Dict(
+            "PWR" => RGBf(0.9, 0.5, 0.1),    # Orange
+            "BWR" => RGBf(0.9, 0.5, 0.1),    # Orange (same as PWR)
+            "HTR" => RGBf(0.9, 0.8, 0.1),    # Yellow
+            "SFR" => RGBf(0.1, 0.7, 0.7),    # Teal
+            "MSR" => RGBf(0.6, 0.6, 0.6)     # Gray
+        )
+
+        # Group consecutive reactors of the same type and add a single label
+        type_groups = []
+        if !isempty(reactor_types_in_scale)
+            current_type = reactor_types_in_scale[1]
+            start_idx = 1
+
+            for j in 2:length(reactor_types_in_scale)
+                if reactor_types_in_scale[j] != current_type
+                    # Store the group info
+                    mid_point = (start_idx + j - 1) / 2
+                    push!(type_groups, (current_type, mid_point))
+                    current_type = reactor_types_in_scale[j]
+                    start_idx = j
+                end
+            end
+            # Add the last group
+            mid_point = (start_idx + length(reactor_types_in_scale)) / 2
+            push!(type_groups, (current_type, mid_point))
+        end
+
+        # Draw type labels to the right of the indicator bars
+        for (rtype, y_pos) in type_groups
+            label_color = get(type_label_colors_map, rtype, :black)
+            text!(ax_type_indicator, 1.2, y_pos,
+                 text = rtype,
+                 align = (:left, :center),
+                 color = label_color,
+                 fontsize = 10,
+                 font = "Noto Sans Bold")
+        end
+
+        # Set column widths: heatmap gets most space, type indicator is narrow
+        colsize!(gl, 3, Fixed(40))  # Type indicator column fixed at 40 pixels
+
         # Add colorbar inside the GridLayout
         Colorbar(gl[1, 2], hmap_shapley, width = 12)
         colsize!(gl, 2, Auto(12))  # Keep colorbar slim
@@ -858,6 +958,36 @@ function shapley_plot_by_scale(shapley_results, title::String, pjs::Vector)
 
     # Overall title
     Label(fig[0, :], title, fontsize = 20, font = "Noto Sans Bold", color = (:black, 0.25))
+
+    # Add legend explaining the colored type indicator bars at the bottom
+    legend_layout = fig[2, :] = GridLayout()
+
+    # Create legend elements for reactor types (using PolyElement for colored bars)
+    legend_elements = []
+    legend_labels = []
+
+    # Define indicator colors for legend (matching the plot)
+    legend_indicator_colors = [
+        ("PWR/BWR", RGBf(0.9, 0.5, 0.1)),  # Orange
+        ("HTR", RGBf(0.9, 0.8, 0.1)),      # Yellow
+        ("SFR", RGBf(0.1, 0.7, 0.7))       # Teal
+    ]
+
+    for (type_name, indicator_color) in legend_indicator_colors
+        push!(legend_elements, PolyElement(color = indicator_color, strokewidth = 0))
+        push!(legend_labels, type_name)
+    end
+
+    Legend(legend_layout[1, 1],
+           legend_elements,
+           legend_labels,
+           "Reactor Type Indicators (colored bars on the right side of each panel)",
+           orientation = :horizontal,
+           tellwidth = false,
+           tellheight = true,
+           framevisible = true,
+           labelsize = 11,
+           titlesize = 12)
 
     return fig
 end
@@ -1861,177 +1991,202 @@ end
 """
     lcoe_comparison_horizontal(lcoe_results::DataFrame, pjs::Vector, opt_scaling::String)
 
-Create horizontal bar chart comparing LCOE distributions across reactor types and benchmarks.
+Create LCOE comparison plot matching the original fig_lcoe_comparison style.
+Extends the original plot to include Large and Micro reactors above SMRs.
 
-# Features
-- P10-P90 range (light gray, 0.3 alpha)
-- P25-P75 range (dark gray, 0.6 alpha)  
-- Median as thick black vertical line
-- Log10 x-axis from 10 to 10000 EUR/MWh
-- Groups: Large → Micro → SMR → Conventionals → Renewables
-- Dashed horizontal separators between groups
-- Min/max values displayed at bar endpoints
-- Includes Lazard 2025 benchmark data
+Uses rangebars to show Q25-Q75 ranges, exactly like the original code.
+Includes Lazard 2025 benchmark data for renewables and conventionals.
 
 # Arguments
 - `lcoe_results::DataFrame`: Monte Carlo LCOE results (columns = reactors)
 - `pjs::Vector`: Vector of project objects with metadata
-- `opt_scaling::String`: Scaling method name for title
+- `opt_scaling::String`: Scaling method name for labeling
 
 # Returns
-- `Figure`: Makie figure object
+- `Figure`: Makie figure object matching original style
 """
 function lcoe_comparison_horizontal(lcoe_results::DataFrame, pjs::Vector, opt_scaling::String)
-    
-    # Calculate percentiles for each reactor
-    reactor_stats = DataFrame(
-        name = String[],
-        scale = String[],
-        type = String[],
-        p10 = Float64[],
-        p25 = Float64[],
-        p50 = Float64[],
-        p75 = Float64[],
-        p90 = Float64[],
-        group = String[]
-    )
-    
-    for (i, pj) in enumerate(pjs)
-        lcoe_vals = lcoe_results[!, pj.name]
-        push!(reactor_stats, (
-            pj.name,
-            pj.scale,
-            pj.type,
-            quantile(lcoe_vals, 0.10),
-            quantile(lcoe_vals, 0.25),
-            quantile(lcoe_vals, 0.50),
-            quantile(lcoe_vals, 0.75),
-            quantile(lcoe_vals, 0.90),
-            pj.scale  # Use scale as group
-        ))
-    end
-    
-    # Add benchmark data (Lazard 2025 - example values, update with actual data)
-    benchmarks = DataFrame(
-        name = ["Gas-Combined Cycle", "Coal", "Nuclear (NewBuild)", "Gas-Peaking",
-                "Wind-Storage-Onshore", "Wind-Offshore", "Wind-Onshore", 
-                "Geothermal", "PV (w/storage)", "PV (utility)", "PV (community)"],
-        scale = fill("Benchmark", 11),
-        type = vcat(fill("Conventional", 4), fill("Renewable", 7)),
-        p10 = [45.0, 65.0, 141.0, 115.0, 54.0, 83.0, 24.0, 69.0, 60.0, 24.0, 48.0],
-        p25 = [55.0, 74.0, 129.0, 152.0, 60.0, 89.0, 27.0, 73.0, 73.0, 29.0, 68.0],
-        p50 = [65.0, 82.0, 174.0, 189.0, 66.0, 96.0, 30.0, 80.0, 93.0, 36.0, 96.0],
-        p75 = [75.0, 90.0, 219.0, 227.0, 72.0, 102.0, 32.0, 92.0, 112.0, 46.0, 123.0],
-        p90 = [87.0, 102.0, 244.0, 264.0, 81.0, 111.0, 36.0, 115.0, 130.0, 60.0, 148.0],
-        group = vcat(fill("Conventional", 4), fill("Renewable", 7))
-    )
-    
-    # Combine reactors and benchmarks
-    all_data = vcat(reactor_stats, benchmarks)
-    
-    # Define display order (top to bottom)
-    order_map = Dict(
-        # Large reactors
-        "Large" => 1,
-        # Micro reactors
-        "Micro" => 2,
-        # SMR reactors  
-        "SMR" => 3,
-        # Conventionals
-        "Conventional" => 4,
-        # Renewables
-        "Renewable" => 5
-    )
-    
-    # Sort by group order
-    all_data.sort_order = [order_map[g] for g in all_data.group]
-    sort!(all_data, :sort_order, rev=true)
-    
-    # Create figure
-    fig = Figure(size=(1000, 800))
-    ax = Axis(fig[1, 1],
-             xlabel = "LCOE [EUR/MWh]",
-             ylabel = "",
-             yticks = (1:nrow(all_data), all_data.name),
-             xscale = log10,
-             title = "LCOE Comparison: $(opt_scaling) Scaling")
-    
-    xlims!(ax, 10, 10000)
 
-    # Define colors by reactor type and scale
-    function get_bar_color(scale::String, type::String)
-        if scale == "Large"
-            return :darkblue
-        elseif scale == "Micro"
-            return :steelblue
-        elseif scale == "SMR"
-            if type == "PWR" || type == "BWR"
-                return :orange
-            elseif type == "HTR"
-                return :yellow
-            elseif type == "SFR"
-                return :cyan
-            else
-                return :lightblue
-            end
-        elseif scale == "Benchmark"
-            if type == "Conventional"
-                return :darkgray
-            elseif type == "Renewable"
-                return :green
-            end
-        end
-        return :gray
-    end
+    # Read Lazard LCOE data from CSV (same as original code)
+    inputpath = "_input"
+    lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
 
-    # Plot bars
-    for (i, row) in enumerate(eachrow(all_data))
-        y = i
+    # Group reactors by scale
+    large_reactors = [pj for pj in pjs if pj.scale == "Large"]
+    micro_reactors = [pj for pj in pjs if pj.scale == "Micro"]
+    smr_reactors = [pj for pj in pjs if pj.scale == "SMR"]
 
-        # Get color for this reactor
-        bar_color = get_bar_color(row.scale, row.type)
+    # Calculate Q25 and Q75 for each reactor (matching original lcoe_bounds logic)
+    lcoe_bounds = DataFrame(q25 = Float64[], q75 = Float64[])
 
-        # P10-P90 range (light with color tint)
-        barplot!(ax, [y], [row.p90 - row.p10],
-                offset = row.p10,
-                direction = :x,
-                color = (bar_color, 0.3),
-                strokewidth = 0)
-
-        # P25-P75 range (darker with color)
-        barplot!(ax, [y], [row.p75 - row.p25],
-                offset = row.p25,
-                direction = :x,
-                color = (bar_color, 0.6),
-                strokewidth = 0)
-
-        # Median line (thick black)
-        linesegments!(ax, [row.p50, row.p50], [y - 0.4, y + 0.4],
-                     color = :black,
-                     linewidth = 3)
-
-        # Add min/max values as text
-        text!(ax, row.p10, y, text = string(round(Int, row.p10)),
-             align = (:right, :center), offset = (-5, 0), fontsize = 8)
-        text!(ax, row.p90, y, text = string(round(Int, row.p90)),
-             align = (:left, :center), offset = (5, 0), fontsize = 8)
-    end
-    
-    # Add separator lines between groups
-    separator_positions = Float64[]
-    current_group = all_data.group[1]
-    for i in 2:nrow(all_data)
-        if all_data.group[i] != current_group
-            push!(separator_positions, i - 0.5)
-            current_group = all_data.group[i]
+    for pj in pjs
+        if hasproperty(lcoe_results, pj.name)
+            push!(lcoe_bounds, (
+                quantile(lcoe_results[!, pj.name], 0.25),
+                quantile(lcoe_results[!, pj.name], 0.75)
+            ))
         end
     end
-    
-    for pos in separator_positions
-        hlines!(ax, pos, linestyle = :dash, color = :red, linewidth = 1.5)
+
+    # Count reactors in each scale
+    n_large = length(large_reactors)
+    n_micro = length(micro_reactors)
+    n_smr = length(smr_reactors)
+
+    # Build technology names list (matching original order but extended)
+    # Original was: Lazard data + ["BWR & PWR SMRs", "HTR SMRs", "SFR SMRs"]
+    # Now: Lazard data + Large by type + Micro by type + SMR by type
+
+    # Calculate aggregated ranges BY TYPE for each scale (like SMR)
+    # LARGE reactors by type
+    large_pwr_bwr = [i for (i, pj) in enumerate(large_reactors) if pj.type in ["PWR", "BWR"]]
+    large_htr = [i for (i, pj) in enumerate(large_reactors) if pj.type == "HTR"]
+    large_sfr = [i for (i, pj) in enumerate(large_reactors) if pj.type == "SFR"]
+
+    large_pwr_lower = !isempty(large_pwr_bwr) ? minimum([lcoe_bounds[i, :q25] for i in large_pwr_bwr]) : 0.0
+    large_pwr_upper = !isempty(large_pwr_bwr) ? maximum([lcoe_bounds[i, :q75] for i in large_pwr_bwr]) : 0.0
+    large_htr_lower = !isempty(large_htr) ? minimum([lcoe_bounds[i, :q25] for i in large_htr]) : 0.0
+    large_htr_upper = !isempty(large_htr) ? maximum([lcoe_bounds[i, :q75] for i in large_htr]) : 0.0
+    large_sfr_lower = !isempty(large_sfr) ? minimum([lcoe_bounds[i, :q25] for i in large_sfr]) : 0.0
+    large_sfr_upper = !isempty(large_sfr) ? maximum([lcoe_bounds[i, :q75] for i in large_sfr]) : 0.0
+
+    # MICRO reactors by type
+    micro_start_idx = n_large + 1
+    micro_pwr_bwr = [i for (i, pj) in enumerate(micro_reactors) if pj.type in ["PWR", "BWR"]]
+    micro_htr = [i for (i, pj) in enumerate(micro_reactors) if pj.type == "HTR"]
+    micro_sfr = [i for (i, pj) in enumerate(micro_reactors) if pj.type == "SFR"]
+
+    micro_pwr_lower = !isempty(micro_pwr_bwr) ? minimum([lcoe_bounds[micro_start_idx + i - 1, :q25] for i in micro_pwr_bwr]) : 0.0
+    micro_pwr_upper = !isempty(micro_pwr_bwr) ? maximum([lcoe_bounds[micro_start_idx + i - 1, :q75] for i in micro_pwr_bwr]) : 0.0
+    micro_htr_lower = !isempty(micro_htr) ? minimum([lcoe_bounds[micro_start_idx + i - 1, :q25] for i in micro_htr]) : 0.0
+    micro_htr_upper = !isempty(micro_htr) ? maximum([lcoe_bounds[micro_start_idx + i - 1, :q75] for i in micro_htr]) : 0.0
+    micro_sfr_lower = !isempty(micro_sfr) ? minimum([lcoe_bounds[micro_start_idx + i - 1, :q25] for i in micro_sfr]) : 0.0
+    micro_sfr_upper = !isempty(micro_sfr) ? maximum([lcoe_bounds[micro_start_idx + i - 1, :q75] for i in micro_sfr]) : 0.0
+
+    # SMR reactors by type
+    smr_pwr_bwr = [i for (i, pj) in enumerate(smr_reactors) if pj.type in ["PWR", "BWR"]]
+    smr_htr = [i for (i, pj) in enumerate(smr_reactors) if pj.type == "HTR"]
+    smr_sfr = [i for (i, pj) in enumerate(smr_reactors) if pj.type == "SFR"]
+
+    smr_start_idx = n_large + n_micro + 1
+    smr_pwr_lower = !isempty(smr_pwr_bwr) ? minimum([lcoe_bounds[smr_start_idx + i - 1, :q25] for i in smr_pwr_bwr]) : 0.0
+    smr_pwr_upper = !isempty(smr_pwr_bwr) ? maximum([lcoe_bounds[smr_start_idx + i - 1, :q75] for i in smr_pwr_bwr]) : 0.0
+    smr_htr_lower = !isempty(smr_htr) ? minimum([lcoe_bounds[smr_start_idx + i - 1, :q25] for i in smr_htr]) : 0.0
+    smr_htr_upper = !isempty(smr_htr) ? maximum([lcoe_bounds[smr_start_idx + i - 1, :q75] for i in smr_htr]) : 0.0
+    smr_sfr_lower = !isempty(smr_sfr) ? minimum([lcoe_bounds[smr_start_idx + i - 1, :q25] for i in smr_sfr]) : 0.0
+    smr_sfr_upper = !isempty(smr_sfr) ? maximum([lcoe_bounds[smr_start_idx + i - 1, :q75] for i in smr_sfr]) : 0.0
+
+    # Build plot data with reactor types for each scale
+    lcoe_plot_data = vcat(
+        select(lcoe_dat, [:technology, :lower_bound, :upper_bound]),
+        DataFrame(
+            technology = [
+                "BWR & PWR Large", "HTR Large", "SFR Large",
+                "BWR & PWR Micro", "HTR Micro", "SFR Micro",
+                "BWR & PWR SMRs", "HTR SMRs", "SFR SMRs"
+            ],
+            lower_bound = [
+                large_pwr_lower, large_htr_lower, large_sfr_lower,
+                micro_pwr_lower, micro_htr_lower, micro_sfr_lower,
+                smr_pwr_lower, smr_htr_lower, smr_sfr_lower
+            ],
+            upper_bound = [
+                large_pwr_upper, large_htr_upper, large_sfr_upper,
+                micro_pwr_upper, micro_htr_upper, micro_sfr_upper,
+                smr_pwr_upper, smr_htr_upper, smr_sfr_upper
+            ]
+        )
+    )
+
+    # Define LCOE plot (EXACTLY like original code)
+    if opt_scaling == "manufacturer"
+        plot_scaling = "Manufacturer"
+    elseif opt_scaling == "roulstone"
+        plot_scaling = "Roulstone"
+    elseif opt_scaling == "rothwell"
+        plot_scaling = "Rothwell"
+    elseif opt_scaling == "uniform"
+        plot_scaling = "uniform"
+    else
+        @error("scaling not defined")
+        plot_scaling = opt_scaling
     end
-    
-    return fig
+
+    xlabel = "[EUR2025/MWh]"
+    yticks = lcoe_plot_data[!, :technology]
+
+    # Color assignment - now with 3 types per scale
+    n_renewables = 7  # From Lazard CSV
+    n_conventionals = 4  # From Lazard CSV
+    col = vcat(
+        fill(1, n_renewables),      # Renewables (green)
+        fill(2, n_conventionals),    # Conventionals (blue)
+        3, 4, 5,  # Large: PWR/BWR, HTR, SFR
+        6, 7, 8,  # Micro: PWR/BWR, HTR, SFR
+        9, 10, 11  # SMR: PWR/BWR, HTR, SFR
+    )
+
+    colormap = [:darkgreen, :darkblue]
+
+    fig_lcoe_comparison = Figure()
+    ax_lcoe = Axis(fig_lcoe_comparison[1,1],
+                   yticks = (1:length(yticks), yticks),
+                   xscale = log10,
+                   xlabel = xlabel)
+
+    xlims!(10, 25000)
+
+    # Rangebars (EXACTLY like original)
+    rangebars!(ax_lcoe, 1:length(yticks), lcoe_plot_data[!, 2], lcoe_plot_data[!, 3],
+              linewidth = 6, whiskerwidth = 8, direction = :x, color = col)
+
+    # Separator lines - add lines between each scale group
+    n_large = 3  # 3 types
+    n_micro = 3  # 3 types
+    n_smr = 3    # 3 types
+
+    separators = [
+        n_renewables + 0.5,  # After renewables (red)
+        n_renewables + n_conventionals + 0.5,  # After conventionals (red)
+        n_renewables + n_conventionals + n_large + 0.5,  # After Large (orange)
+        n_renewables + n_conventionals + n_large + n_micro + 0.5  # After Micro (orange)
+    ]
+
+    line_colors = [:red, :red, :orange, :orange]
+
+    hlines!(ax_lcoe, separators, linestyle = :dash, color = line_colors, linewidth = 1.5)
+
+    # Text labels for categories
+    renewables_center = n_renewables / 2
+    conventionals_center = n_renewables + (n_conventionals / 2) + 0.5
+    large_center = n_renewables + n_conventionals + (n_large / 2) + 0.5
+    micro_center = n_renewables + n_conventionals + n_large + (n_micro / 2) + 0.5
+    smr_center = n_renewables + n_conventionals + n_large + n_micro + (n_smr / 2) + 0.5
+
+    text!([15000, 15000, 16, 16, 16],
+          [renewables_center, conventionals_center, large_center, micro_center, smr_center];
+          text = ["Renewables\n(LAZARD 2025)", "Conventionals\n(LAZARD 2025)",
+                  "Large", "Micro", "SMR"],
+          align = (:center, :center),
+          justification = :center,
+          rotation = π/2)
+
+    # Value labels (EXACTLY like original)
+    text!(lcoe_plot_data[!, 2], 1:length(yticks),
+         text = string.(round.(Int, lcoe_plot_data[!, 2])),
+         align = (:right, :center),
+         offset = (-10, 0))
+
+    text!(lcoe_plot_data[!, 3], 1:length(yticks),
+         text = string.(round.(Int, lcoe_plot_data[!, 3])),
+         align = (:left, :center),
+         offset = (10, 0))
+
+    # Title (EXACTLY like original)
+    Label(fig_lcoe_comparison[1, 1, Top()], "LCOE Comparison",
+         font = "Noto Sans Bold", padding = (0, 6, 6, 0))
+
+    return fig_lcoe_comparison
 end
 
 """
@@ -2142,7 +2297,7 @@ Generate learning curves for SMR reactors showing LCOE reduction with cumulative
 - Separate subplot for each SMR reactor
 - Three curves: Pessimistic (5% LR), Base (10% LR), Optimistic (15% LR)
 - X-axis: Cumulative Units (1-30)
-- Y-axis: LCOE [EUR/MWh]
+- Y-axis: LCOE [EUR2025/MWh]
 - Shaded confidence bands (P10-P90)
 - Color-coded: Pessimistic=red, Base=orange, Optimistic=green
 
@@ -2161,35 +2316,42 @@ Wright's Law: C_NOAK = C_FOAK × (1 - LR)^(log₂(N))
 """
 function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_mean::Float64,
                               opt_scaling::String, outputpath::String)
-    
-    # Filter SMR reactors only
-    smr_reactors = [pj for pj in pjs if pj.scale == "SMR"]
-    
-    if isempty(smr_reactors)
-        @warn "No SMR reactors found"
+
+    # Use provided reactor list (can be filtered by scale)
+    all_reactors = pjs
+
+    if isempty(all_reactors)
+        @warn "No reactors found"
         return Figure()
     end
-    
+
+    # Determine scale for title
+    scales_in_data = unique([pj.scale for pj in all_reactors])
+    scale_label = length(scales_in_data) == 1 ? scales_in_data[1] : "All"
+
     # Learning parameters
     N_values = [1, 2, 4, 6, 8, 12, 16, 20, 24, 30]
     learning_rates = [0.05, 0.10, 0.15]  # Pessimistic, Base, Optimistic
-    lr_linestyles = Dict(0.05 => :solid, 0.10 => :dash, 0.15 => :dot)
-    lr_labels = Dict(0.05 => "Pessimistic (5%)", 0.10 => "Base (10%)", 0.15 => "Optimistic (15%)")
 
-    # Color by reactor type (not learning rate!)
+    # Line widths: baseline (10%) thick, others thinner
+    lr_linewidths = Dict(0.05 => 2.0, 0.10 => 3.5, 0.15 => 2.0)
+    lr_labels = Dict(0.05 => "LR 5%", 0.10 => "LR 10% (Base)", 0.15 => "LR 15%")
+
+    # Updated color scheme - darker colors as requested
     reactor_type_colors = Dict(
-        "BWR" => :red,
-        "PWR" => :orange,
-        "HTR" => :yellow,
-        "SFR" => :cyan
+        "BWR" => RGBf(0.8, 0.4, 0.0),    # Darker orange
+        "PWR" => RGBf(0.8, 0.4, 0.0),    # Darker orange (same as BWR)
+        "HTR" => RGBf(0.7, 0.6, 0.0),    # Darker yellow
+        "SFR" => RGBf(0.0, 0.5, 0.5),    # Darker teal
+        "MSR" => RGBf(0.5, 0.5, 0.5)     # Gray
     )
 
     # Create grid layout
-    n_reactors = length(smr_reactors)
-    n_cols = min(3, n_reactors)
+    n_reactors = length(all_reactors)
+    n_cols = min(5, n_reactors)  # Up to 5 columns for better layout
     n_rows = Int(ceil(n_reactors / n_cols))
 
-    fig = Figure(size=(400 * n_cols, 300 * n_rows))
+    fig = Figure(size=(350 * n_cols, 300 * n_rows))
 
     # Try to load baseline LCOE data
     baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling.csv"
@@ -2198,7 +2360,7 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
 
     if isfile(baseline_file)
         summary_data = CSV.read(baseline_file, DataFrame)
-        for (i, pj) in enumerate(smr_reactors)
+        for (i, pj) in enumerate(all_reactors)
             if "variable" in names(summary_data)
                 idx = findfirst(==(pj.name), summary_data.variable)
                 if !isnothing(idx)
@@ -2213,14 +2375,14 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
         end
     end
 
-    for (idx, pj) in enumerate(smr_reactors)
+    for (idx, pj) in enumerate(all_reactors)
         row = div(idx - 1, n_cols) + 1
         col = mod(idx - 1, n_cols) + 1
 
         ax = Axis(fig[row, col],
                  title = pj.name,
                  xlabel = "Cumulative Units (N)",
-                 ylabel = row == 1 && col == 1 ? "LCOE [EUR/MWh]" : "")
+                 ylabel = row == 1 && col == 1 ? "LCOE [EUR2025/MWh]" : "")
 
         # Get baseline FOAK LCOE and uncertainty
         foak_lcoe = get(baseline_lcoe, pj.name, 100.0)
@@ -2247,29 +2409,55 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
                 push!(lcoe_upper, noak_lcoe + 1.96 * noak_std)
             end
 
-            # Plot confidence band for base case only (to avoid clutter)
-            if LR == 0.10
-                band!(ax, N_values, lcoe_lower, lcoe_upper,
-                     color = (reactor_color, 0.2))
-            end
+            # Plot confidence band for ALL learning rates (as requested)
+            band_alpha = LR == 0.10 ? 0.25 : 0.15  # Base case slightly more opaque
+            band!(ax, N_values, lcoe_lower, lcoe_upper,
+                 color = (reactor_color, band_alpha))
 
-            # Plot line
+            # Plot line - all solid, varying thickness
+            line_width = lr_linewidths[LR]
             lines!(ax, N_values, lcoe_curve,
                   color = reactor_color,
-                  linestyle = lr_linestyles[LR],
-                  linewidth = 2,
+                  linestyle = :solid,  # All solid as requested
+                  linewidth = line_width,
                   label = lr_labels[LR])
+
+            # Add dots for each observation point
+            scatter!(ax, N_values, lcoe_curve,
+                    color = reactor_color,
+                    markersize = LR == 0.10 ? 8 : 6,  # Larger dots for baseline
+                    strokewidth = 1,
+                    strokecolor = :white)
         end
 
-        # Add legend to first subplot
+        # Add legend to first subplot with reactor type color indicator
         if idx == 1
-            axislegend(ax, position = :rt)
+            axislegend(ax, position = :rt, framevisible = true,
+                      labelsize = 10, titlesize = 11)
         end
     end
 
-    Label(fig[0, :], "SMR Learning Curves: LCOE Reduction with Experience (roulstone scaling)",
+    # Add overall title with scale label
+    Label(fig[0, :], "$scale_label Reactors: LCOE Reduction with Experience ($opt_scaling scaling)",
           fontsize = 18, font = "Noto Sans Bold")
-    
+
+    # Add global legend for reactor types
+    legend_elements = []
+    legend_labels = []
+    for (rtype, color) in sort(collect(reactor_type_colors), by=x->x[1])
+        # Check if this reactor type exists in our data
+        if any(pj.type == rtype for pj in all_reactors)
+            push!(legend_elements, LineElement(color = color, linewidth = 3))
+            push!(legend_labels, rtype)
+        end
+    end
+
+    if !isempty(legend_elements)
+        Legend(fig[end+1, :], legend_elements, legend_labels,
+              "Reactor Type Colors", orientation = :horizontal,
+              framevisible = true, tellwidth = false, tellheight = true)
+    end
+
     return fig
 end
 
@@ -2280,7 +2468,7 @@ Create S-curves showing probability of LCOE exceeding various thresholds.
 
 # Features
 - Smooth S-curves: P(LCOE > threshold) vs threshold
-- X-axis: LCOE Threshold [EUR/MWh] from 0 to 300
+- X-axis: LCOE Threshold [EUR2025/MWh] from 0 to 300
 - Y-axis: Probability of Exceeding [%] from 0 to 100
 - Horizontal line at 50% probability
 - Color-coded by reactor type
@@ -2297,7 +2485,7 @@ function threshold_probability_curves(lcoe_results::DataFrame, pjs::Vector)
     
     fig = Figure(size=(1000, 700))
     ax = Axis(fig[1, 1],
-             xlabel = "LCOE Threshold [EUR/MWh]",
+             xlabel = "LCOE Threshold [EUR2025/MWh]",
              ylabel = "Probability of Exceeding Threshold [%]",
              title = "LCOE Threshold Exceedance Probability")
     
