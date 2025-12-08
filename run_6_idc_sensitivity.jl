@@ -8,6 +8,8 @@
 #
 # Outputs: Single aggregated PDF per reactor scale showing the principle
 
+using Pkg
+Pkg.activate(pwd())
 using CairoMakie, Statistics
 
 # Set paths

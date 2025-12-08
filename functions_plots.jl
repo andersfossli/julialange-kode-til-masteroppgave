@@ -2549,8 +2549,8 @@ function threshold_probability_curves(lcoe_results::DataFrame, pjs::Vector)
         "MSR" => RGBf(0.6, 0.0, 0.6)     # Purple
     )
 
-    # Threshold range
-    thresholds = 0.0:5.0:300.0
+    # Threshold range (extended to 500 for better visualization)
+    thresholds = 0.0:5.0:500.0
 
     # Create one figure per scale
     figures = Dict{String, Figure}()
@@ -2628,12 +2628,12 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
     end
 
     # Color scheme for LCOE components (4-tier breakdown)
-    # Using distinct colors for better visual separation
+    # Consistent with thesis color scheme (matching learning curves and histograms)
     component_colors = Dict(
-        "OCC" => RGBf(0.2, 0.4, 0.7),               # Blue (base capital cost)
-        "IDC" => RGBf(0.9, 0.6, 0.2),               # Orange (financing cost - stands out)
-        "Fixed O&M" => RGBf(0.4, 0.7, 0.4),         # Green (fixed operations)
-        "Variable O&M + Fuel" => RGBf(0.7, 0.4, 0.4)  # Red (variable costs)
+        "OCC" => RGBf(0.0, 0.5, 0.5),               # Teal (base capital cost)
+        "IDC" => RGBf(0.8, 0.4, 0.0),               # Darker orange (financing cost - stands out)
+        "Fixed O&M" => RGBf(0.7, 0.6, 0.0),         # Darker yellow (fixed operations)
+        "Variable O&M + Fuel" => RGBf(0.8, 0.2, 0.2)  # Orangered (variable costs)
     )
 
     figures = Dict{String, Figure}()
@@ -2664,14 +2664,18 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
             push!(variable_om_fuel_values, median(res.lcoe_variable_om_fuel))
         end
 
-        # Create figure
+        # Create figure with clean academic style (matching learning curves)
         n_reactors = length(reactor_labels)
-        fig = Figure(size=(max(800, 200 * n_reactors), 700))
+        fig = Figure(size=(max(800, 200 * n_reactors), 700), backgroundcolor=:white)
         ax = Axis(fig[1,1],
                  title = "$scale Reactors: LCOE Component Breakdown ($opt_scaling scaling)",
                  ylabel = "LCOE [EUR2025/MWh]",
                  xticks = (1:n_reactors, reactor_labels),
-                 xticklabelrotation = π/4)
+                 xticklabelrotation = π/4,
+                 xgridvisible = false,
+                 ygridvisible = true,
+                 ygridcolor = (:gray, 0.2),
+                 ygridstyle = :dash)
 
         # Create stacked bars
         # Layer 1: OCC (starts at 0)
@@ -3052,19 +3056,23 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
     lcoe_idc_delayed = (idc_delayed * crf) / annual_generation
     lcoe_capital_delayed = lcoe_occ + lcoe_idc_delayed
 
-    # Create figure
-    fig = Figure(size=(1400, 700))
+    # Create figure with clean academic style (matching learning curves)
+    fig = Figure(size=(1400, 700), backgroundcolor=:white)
 
     # Scenario 1: On-time
     ax1 = Axis(fig[1,1],
               title = "On-Time Construction\n$(base_construction_time) years",
               ylabel = "Capital LCOE [EUR2025/MWh]",
               xticks = (1:3, ["OCC\n(Overnight Cost)", "IDC\n(Financing)", "Total\nCapital"]),
-              xticklabelrotation = 0)
+              xticklabelrotation = 0,
+              xgridvisible = false,
+              ygridvisible = true,
+              ygridcolor = (:gray, 0.2),
+              ygridstyle = :dash)
 
-    barplot!(ax1, [1], [lcoe_occ], color=:steelblue3, width=0.6)
-    barplot!(ax1, [2], [lcoe_idc_base], offset=[lcoe_occ], color=:coral2, width=0.6)
-    barplot!(ax1, [3], [lcoe_capital_base], color=:darkblue, width=0.6)
+    barplot!(ax1, [1], [lcoe_occ], color=RGBf(0.0, 0.5, 0.5), width=0.6)  # Teal (matches LCOE breakdown)
+    barplot!(ax1, [2], [lcoe_idc_base], offset=[lcoe_occ], color=RGBf(0.8, 0.4, 0.0), width=0.6)  # Darker orange
+    barplot!(ax1, [3], [lcoe_capital_base], color=RGBf(0.0, 0.4, 0.4), width=0.6)  # Darker teal for total
 
     # Labels
     text!(ax1, 1, lcoe_occ/2,
@@ -3085,11 +3093,15 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
               title = "Delayed Construction\n$(delayed_construction_time) years (+$(delayed_construction_time - base_construction_time) years delay)",
               ylabel = "Capital LCOE [EUR2025/MWh]",
               xticks = (1:3, ["OCC\n(Overnight Cost)", "IDC\n(Financing)", "Total\nCapital"]),
-              xticklabelrotation = 0)
+              xticklabelrotation = 0,
+              xgridvisible = false,
+              ygridvisible = true,
+              ygridcolor = (:gray, 0.2),
+              ygridstyle = :dash)
 
-    barplot!(ax2, [1], [lcoe_occ], color=:steelblue3, width=0.6)
-    barplot!(ax2, [2], [lcoe_idc_delayed], offset=[lcoe_occ], color=:orangered2, width=0.6)
-    barplot!(ax2, [3], [lcoe_capital_delayed], color=:darkred, width=0.6)
+    barplot!(ax2, [1], [lcoe_occ], color=RGBf(0.0, 0.5, 0.5), width=0.6)  # Teal (matches LCOE breakdown)
+    barplot!(ax2, [2], [lcoe_idc_delayed], offset=[lcoe_occ], color=RGBf(0.8, 0.2, 0.2), width=0.6)  # Orangered (delayed scenario)
+    barplot!(ax2, [3], [lcoe_capital_delayed], color=RGBf(0.6, 0.15, 0.15), width=0.6)  # Darker red for total
 
     # Labels
     text!(ax2, 1, lcoe_occ/2,
@@ -3120,11 +3132,11 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
           "Impact: Each additional year of delay adds $(round(idc_per_year, digits=1)) EUR/MWh to capital LCOE → Total impact: +$(round(total_increase, digits=1)) EUR/MWh (+$(round(pct_increase, digits=1))%)",
           fontsize=14, color=:darkred, font=:bold)
 
-    # Legend
+    # Legend (updated to match consistent color scheme)
     legend_elements = [
-        PolyElement(color=:steelblue3, strokewidth=0),
-        PolyElement(color=:coral2, strokewidth=0),
-        PolyElement(color=:orangered2, strokewidth=0)
+        PolyElement(color=RGBf(0.0, 0.5, 0.5), strokewidth=0),  # Teal
+        PolyElement(color=RGBf(0.8, 0.4, 0.0), strokewidth=0),  # Darker orange
+        PolyElement(color=RGBf(0.8, 0.2, 0.2), strokewidth=0)   # Orangered
     ]
     legend_labels = [
         "OCC (Overnight Construction Cost) - unchanged",
@@ -3139,6 +3151,326 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
            tellwidth=false,
            tellheight=true,
            framevisible=true)
+
+    return fig
+end
+
+"""
+    plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::Vector,
+                                   electricity_price_mean::Float64, opt_scaling::String,
+                                   construction_time_range::Vector{Int})
+
+Create aggregated LCOE breakdown visualization with both stacked bar and donut chart.
+Shows the component breakdown (OCC, IDC, Fixed O&M, Variable O&M+Fuel) for a typical reactor of given scale.
+"""
+function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::Vector,
+                                       electricity_price_mean::Float64, opt_scaling::String,
+                                       construction_time_range::Vector{Int})
+
+    scale_reactors = filter(p -> p.scale == scale, pjs)
+    if isempty(scale_reactors)
+        @error "No reactors found for scale: $scale"
+        return nothing
+    end
+
+    @info "Aggregating $(length(scale_reactors)) $(scale) reactors for LCOE breakdown (using $opt_scaling scaling)"
+
+    n = 10000
+    all_occ = Float64[]
+    all_idc = Float64[]
+    all_fixed_om = Float64[]
+    all_variable_om_fuel = Float64[]
+
+    for p in scale_reactors
+        rand_vars = gen_rand_vars(opt_scaling, n, wacc_range, electricity_price_mean, p;
+                                  construction_time_range=construction_time_range)
+        disc_res = mc_run(n, p, rand_vars)
+        res = npv_lcoe(disc_res, decompose=true)
+        append!(all_occ, res.lcoe_occ)
+        append!(all_idc, res.lcoe_idc)
+        append!(all_fixed_om, res.lcoe_fixed_om)
+        append!(all_variable_om_fuel, res.lcoe_variable_om_fuel)
+    end
+
+    median_occ = median(all_occ)
+    median_idc = median(all_idc)
+    median_fixed_om = median(all_fixed_om)
+    median_variable = median(all_variable_om_fuel)
+    median_total = median_occ + median_idc + median_fixed_om + median_variable
+
+    @info "  Median LCOE: $(round(median_total, digits=1)) EUR2025/MWh"
+    @info "    OCC: $(round(median_occ, digits=1)) ($(round(median_occ/median_total*100, digits=1))%)"
+    @info "    IDC: $(round(median_idc, digits=1)) ($(round(median_idc/median_total*100, digits=1))%)"
+    @info "    Fixed O&M: $(round(median_fixed_om, digits=1)) ($(round(median_fixed_om/median_total*100, digits=1))%)"
+    @info "    Variable O&M+Fuel: $(round(median_variable, digits=1)) ($(round(median_variable/median_total*100, digits=1))%)"
+
+    component_colors = Dict(
+        "OCC" => RGBf(0.0, 0.5, 0.5),
+        "IDC" => RGBf(0.8, 0.4, 0.0),
+        "Fixed O&M" => RGBf(0.7, 0.6, 0.0),
+        "Variable O&M + Fuel" => RGBf(0.8, 0.2, 0.2)
+    )
+
+    fig = Figure(size=(1400, 700), backgroundcolor=:white)
+
+    ax1 = Axis(fig[1,1],
+              title = "Stacked Bar Chart",
+              ylabel = "LCOE [EUR2025/MWh]",
+              xticks = ([1], ["Aggregated\n$scale"]),
+              xgridvisible = false,
+              ygridvisible = true,
+              ygridcolor = (:gray, 0.2),
+              ygridstyle = :dash)
+
+    barplot!(ax1, [1], [median_occ], color=component_colors["OCC"], width=0.6)
+    barplot!(ax1, [1], [median_idc], offset=[median_occ], color=component_colors["IDC"], width=0.6)
+    barplot!(ax1, [1], [median_fixed_om], offset=[median_occ + median_idc],
+             color=component_colors["Fixed O&M"], width=0.6)
+    barplot!(ax1, [1], [median_variable], offset=[median_occ + median_idc + median_fixed_om],
+             color=component_colors["Variable O&M + Fuel"], width=0.6)
+
+    text!(ax1, 1, median_occ/2,
+         text="OCC\n$(round(median_occ, digits=1))\n($(round(median_occ/median_total*100, digits=1))%)",
+         align=(:center, :center), color=:white, fontsize=12, font=:bold)
+
+    text!(ax1, 1, median_occ + median_idc/2,
+         text="IDC\n$(round(median_idc, digits=1))\n($(round(median_idc/median_total*100, digits=1))%)",
+         align=(:center, :center), color=:white, fontsize=12, font=:bold)
+
+    text!(ax1, 1, median_occ + median_idc + median_fixed_om/2,
+         text="Fixed O&M\n$(round(median_fixed_om, digits=1))\n($(round(median_fixed_om/median_total*100, digits=1))%)",
+         align=(:center, :center), color=:black, fontsize=12, font=:bold)
+
+    text!(ax1, 1, median_occ + median_idc + median_fixed_om + median_variable/2,
+         text="Variable\n$(round(median_variable, digits=1))\n($(round(median_variable/median_total*100, digits=1))%)",
+         align=(:center, :center), color=:white, fontsize=12, font=:bold)
+
+    text!(ax1, 1, median_total + median_total*0.05,
+         text="Total: $(round(median_total, digits=1))",
+         align=(:center, :bottom), color=:black, fontsize=13, font=:bold)
+
+    ax2 = Axis(fig[1,2], title = "Donut Chart", aspect = DataAspect())
+    hidedecorations!(ax2)
+    hidespines!(ax2)
+
+    values = [median_occ, median_idc, median_fixed_om, median_variable]
+    colors_donut = [component_colors["OCC"], component_colors["IDC"],
+                    component_colors["Fixed O&M"], component_colors["Variable O&M + Fuel"]]
+    labels = ["OCC", "IDC", "Fixed O&M", "Variable O&M+Fuel"]
+
+    total_val = sum(values)
+    angles = [0.0]
+    for v in values
+        push!(angles, angles[end] + 2π * v / total_val)
+    end
+
+    for i in 1:length(values)
+        θ_range = range(angles[i], angles[i+1], length=100)
+        outer_radius = 1.0
+        inner_radius = 0.5
+
+        x_outer = outer_radius .* cos.(θ_range)
+        y_outer = outer_radius .* sin.(θ_range)
+        x_inner = inner_radius .* cos.(reverse(θ_range))
+        y_inner = inner_radius .* sin.(reverse(θ_range))
+
+        x_poly = vcat(x_outer, x_inner)
+        y_poly = vcat(y_outer, y_inner)
+
+        poly!(ax2, Point2f.(x_poly, y_poly), color=colors_donut[i], strokewidth=1, strokecolor=:white)
+
+        mid_angle = (angles[i] + angles[i+1]) / 2
+        label_radius = 0.75
+        x_label = label_radius * cos(mid_angle)
+        y_label = label_radius * sin(mid_angle)
+
+        pct = round(values[i] / total_val * 100, digits=1)
+        text!(ax2, x_label, y_label,
+             text="$(labels[i])\n$(round(values[i], digits=1))\n($(pct)%)",
+             align=(:center, :center), color=:white, fontsize=11, font=:bold)
+    end
+
+    xlims!(ax2, -1.3, 1.3)
+    ylims!(ax2, -1.3, 1.3)
+
+    Label(fig[0, :],
+          "LCOE Component Breakdown: Aggregated $(scale) Reactors ($opt_scaling scaling)",
+          fontsize=20, font=:bold)
+
+    legend_elements = [
+        PolyElement(color=component_colors["OCC"], strokewidth=0),
+        PolyElement(color=component_colors["IDC"], strokewidth=0),
+        PolyElement(color=component_colors["Fixed O&M"], strokewidth=0),
+        PolyElement(color=component_colors["Variable O&M + Fuel"], strokewidth=0)
+    ]
+    legend_labels = [
+        "OCC (Overnight Construction Cost)",
+        "IDC (Interest During Construction)",
+        "Fixed O&M (Operations & Maintenance)",
+        "Variable O&M + Fuel"
+    ]
+
+    Legend(fig[2, :],
+           legend_elements,
+           legend_labels,
+           orientation=:horizontal,
+           tellwidth=false,
+           tellheight=true,
+           framevisible=true)
+
+    return fig
+end
+
+"""
+    plot_lcoe_donut_standalone(pjs::Vector, scale::String, wacc_range::Vector,
+                                electricity_price_mean::Float64, opt_scaling::String,
+                                construction_time_range::Vector{Int})
+
+Create standalone donut chart for LCOE breakdown with vibrant colors and borders.
+"""
+function plot_lcoe_donut_standalone(pjs::Vector, scale::String, wacc_range::Vector,
+                                    electricity_price_mean::Float64, opt_scaling::String,
+                                    construction_time_range::Vector{Int})
+
+    scale_reactors = filter(p -> p.scale == scale, pjs)
+    if isempty(scale_reactors)
+        @error "No reactors found for scale: $scale"
+        return nothing
+    end
+
+    @info "Creating standalone donut chart for $(length(scale_reactors)) $(scale) reactors"
+
+    n = 10000
+    all_occ = Float64[]
+    all_idc = Float64[]
+    all_fixed_om = Float64[]
+    all_variable_om_fuel = Float64[]
+
+    for p in scale_reactors
+        rand_vars = gen_rand_vars(opt_scaling, n, wacc_range, electricity_price_mean, p;
+                                  construction_time_range=construction_time_range)
+        disc_res = mc_run(n, p, rand_vars)
+        res = npv_lcoe(disc_res, decompose=true)
+        append!(all_occ, res.lcoe_occ)
+        append!(all_idc, res.lcoe_idc)
+        append!(all_fixed_om, res.lcoe_fixed_om)
+        append!(all_variable_om_fuel, res.lcoe_variable_om_fuel)
+    end
+
+    median_occ = median(all_occ)
+    median_idc = median(all_idc)
+    median_fixed_om = median(all_fixed_om)
+    median_variable = median(all_variable_om_fuel)
+    median_total = median_occ + median_idc + median_fixed_om + median_variable
+
+    @info "  Median LCOE: $(round(median_total, digits=1)) EUR2025/MWh"
+
+    # More vibrant colors
+    component_colors = Dict(
+        "OCC" => RGBf(0.0, 0.65, 0.65),             # Brighter teal
+        "IDC" => RGBf(1.0, 0.55, 0.0),              # Vibrant orange
+        "Fixed O&M" => RGBf(0.95, 0.85, 0.0),       # Bright yellow
+        "Variable O&M + Fuel" => RGBf(1.0, 0.3, 0.3)  # Vibrant red
+    )
+
+    # Create figure - larger for standalone use
+    fig = Figure(size=(1000, 1000), backgroundcolor=:white)
+
+    # Create donut chart
+    ax = Axis(fig[1, 1], aspect = DataAspect())
+    hidedecorations!(ax)
+    hidespines!(ax)
+
+    values = [median_occ, median_idc, median_fixed_om, median_variable]
+    colors_donut = [component_colors["OCC"], component_colors["IDC"],
+                    component_colors["Fixed O&M"], component_colors["Variable O&M + Fuel"]]
+    labels = ["OCC", "IDC", "Fixed O&M", "Variable O&M\n+ Fuel"]
+
+    total_val = sum(values)
+    angles = [0.0]
+    for v in values
+        push!(angles, angles[end] + 2π * v / total_val)
+    end
+
+    # Draw donut segments with borders
+    for i in 1:length(values)
+        θ_range = range(angles[i], angles[i+1], length=100)
+        outer_radius = 1.0
+        inner_radius = 0.55  # Slightly thicker donut
+
+        x_outer = outer_radius .* cos.(θ_range)
+        y_outer = outer_radius .* sin.(θ_range)
+        x_inner = inner_radius .* cos.(reverse(θ_range))
+        y_inner = inner_radius .* sin.(reverse(θ_range))
+
+        x_poly = vcat(x_outer, x_inner)
+        y_poly = vcat(y_outer, y_inner)
+
+        # Draw filled polygon with border
+        poly!(ax, Point2f.(x_poly, y_poly), 
+             color=colors_donut[i], 
+             strokewidth=2, 
+             strokecolor=:white)
+
+        # Add value labels
+        mid_angle = (angles[i] + angles[i+1]) / 2
+        label_radius = 0.775  # Adjust for thicker donut
+        x_label = label_radius * cos(mid_angle)
+        y_label = label_radius * sin(mid_angle)
+
+        pct = round(values[i] / total_val * 100, digits=1)
+        value_rounded = round(values[i], digits=1)
+        
+        text!(ax, x_label, y_label,
+             text="$(labels[i])\n$(value_rounded)\n($(pct)%)",
+             align=(:center, :center), 
+             color=:white, 
+             fontsize=14, 
+             font=:bold)
+    end
+
+    # Add center text showing total
+    text!(ax, 0, 0,
+         text="Total LCOE\n$(round(median_total, digits=1))\nEUR2025/MWh",
+         align=(:center, :center),
+         color=:black,
+         fontsize=18,
+         font=:bold)
+
+    # Set axis limits
+    xlims!(ax, -1.15, 1.15)
+    ylims!(ax, -1.15, 1.15)
+
+    # Title
+    Label(fig[0, 1],
+          "LCOE Component Breakdown: $(scale) Reactors",
+          fontsize=24, 
+          font=:bold,
+          padding=(0, 0, 10, 0))
+
+    # Legend below the chart
+    legend_elements = [
+        PolyElement(color=component_colors["OCC"], strokewidth=2, strokecolor=:black),
+        PolyElement(color=component_colors["IDC"], strokewidth=2, strokecolor=:black),
+        PolyElement(color=component_colors["Fixed O&M"], strokewidth=2, strokecolor=:black),
+        PolyElement(color=component_colors["Variable O&M + Fuel"], strokewidth=2, strokecolor=:black)
+    ]
+    legend_labels = [
+        "OCC (Overnight Construction Cost)",
+        "IDC (Interest During Construction)",
+        "Fixed O&M (Operations & Maintenance)",
+        "Variable O&M + Fuel"
+    ]
+
+    Legend(fig[2, 1],
+           legend_elements,
+           legend_labels,
+           orientation=:vertical,
+           tellwidth=false,
+           tellheight=true,
+           framevisible=true,
+           nbanks=2,
+           labelsize=14)
 
     return fig
 end

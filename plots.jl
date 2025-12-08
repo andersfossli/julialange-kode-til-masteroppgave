@@ -170,10 +170,11 @@ save("$outputpath/fig-investment_comparison_by_scale.pdf", fig_invest_comparison
 ##### boxplots Monte Carlo simulation results #####
 # requires results for all 15 reactor concepts
 
-fig_mcs_npv = mcs_plot(npv_results, "NPV", "[EUR2025/MW]", pjs)
-fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[EUR2025/MWh]", pjs)
+# NPV plots disabled - not needed for thesis
+# fig_mcs_npv = mcs_plot(npv_results, "NPV", "[EUR2025/MW]", pjs)
+# save("$outputpath/fig-mcs_npv-$opt_scaling.pdf", fig_mcs_npv);
 
-save("$outputpath/fig-mcs_npv-$opt_scaling.pdf", fig_mcs_npv);
+fig_mcs_lcoe = mcs_plot(lcoe_results, "LCOE", "[EUR2025/MWh]", pjs)
 save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
 
 ##### heatmaps sensitivity indices #####
@@ -184,10 +185,12 @@ if !isnothing(si_npv_results) && !isnothing(si_lcoe_results)
     @info("Generating sensitivity index plots")
     # New: Grouped by scale (Micro/SMR/Large)
     # Use Base.invokelatest to avoid Julia 1.12 world age issues
-    fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
-    fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
 
-    save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
+    # NPV sensitivity plots disabled - not needed for thesis
+    # fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
+    # save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
+
+    fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
     save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
     @info("✓ Sensitivity index plots saved")
 else
@@ -277,8 +280,8 @@ save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_his
 # Shows cumulative probability: P(LCOE ≤ threshold) by scale
 # Use Base.invokelatest to avoid Julia 1.12 world age issues
 
-# Define thresholds (0 to 300 EUR/MWh in steps of 20)
-lcoe_thresholds = collect(0.0:20.0:300.0)  # Float64 values required
+# Define thresholds (0 to 500 EUR/MWh in steps of 20)
+lcoe_thresholds = collect(0.0:20.0:500.0)  # Float64 values required
 fig_lcoe_threshold_prob = Base.invokelatest(lcoe_threshold_probability_plot, lcoe_results, pjs; thresholds=lcoe_thresholds)
 save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_threshold_prob);
 
@@ -293,16 +296,18 @@ save("$outputpath/fig-lcoe_threshold_probability-$opt_scaling.pdf", fig_lcoe_thr
 fig_regional_all = Base.invokelatest(mcs_plot_regional, lcoe_results, pjs; scale_filter="All")
 save("$outputpath/fig-regional_comparison_all-$opt_scaling.pdf", fig_regional_all);
 
-fig_regional_combined_all = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="All")
-save("$outputpath/fig-regional_combined_all-$opt_scaling.pdf", fig_regional_combined_all);
+# Regional combined plots disabled - not needed for thesis
+# fig_regional_combined_all = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="All")
+# save("$outputpath/fig-regional_combined_all-$opt_scaling.pdf", fig_regional_combined_all);
 
 # LARGE ONLY: Specific comparison for deployment learning analysis
 @info("Generating regional plots for Large reactors only")
 fig_regional_large = Base.invokelatest(mcs_plot_regional, lcoe_results, pjs; scale_filter="Large")
 save("$outputpath/fig-regional_comparison_large-$opt_scaling.pdf", fig_regional_large);
 
-fig_regional_combined_large = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="Large")
-save("$outputpath/fig-regional_combined_large-$opt_scaling.pdf", fig_regional_combined_large);
+# Regional combined plots disabled - not needed for thesis
+# fig_regional_combined_large = Base.invokelatest(mcs_plot_regional_combined, lcoe_results, pjs; scale_filter="Large")
+# save("$outputpath/fig-regional_combined_large-$opt_scaling.pdf", fig_regional_combined_large);
 
 @info("Regional comparison plots saved (all scales + Large-specific)")
 
@@ -344,31 +349,34 @@ baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling-baseline.csv"
 if isfile(baseline_file)
     @info("Learning scenario files found - generating learning curve plots")
 
-    # Conservative scenario (LR=5%)
-    @info("Generating conservative learning curves (LR=5%)")
-    fig_learning_comparison_conservative = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_conservative, pjs)
-    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR05.pdf", fig_learning_comparison_conservative)
+    # Learning curve "by_scale" and "overall" plots disabled - not needed for thesis
+    # These were replaced by the individual reactor learning curves in the section below
 
-    fig_learning_overall_conservative = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_conservative)
-    save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR05.pdf", fig_learning_overall_conservative)
+    # # Conservative scenario (LR=5%)
+    # @info("Generating conservative learning curves (LR=5%)")
+    # fig_learning_comparison_conservative = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_conservative, pjs)
+    # save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR05.pdf", fig_learning_comparison_conservative)
 
-    # Base scenario (LR=10%)
-    @info("Generating base learning curves (LR=10%)")
-    fig_learning_comparison_base = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_base, pjs)
-    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR10.pdf", fig_learning_comparison_base)
+    # fig_learning_overall_conservative = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_conservative)
+    # save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR05.pdf", fig_learning_overall_conservative)
 
-    fig_learning_overall_base = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_base)
-    save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR10.pdf", fig_learning_overall_base)
+    # # Base scenario (LR=10%)
+    # @info("Generating base learning curves (LR=10%)")
+    # fig_learning_comparison_base = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_base, pjs)
+    # save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR10.pdf", fig_learning_comparison_base)
 
-    # Optimistic scenario (LR=15%)
-    @info("Generating optimistic learning curves (LR=15%)")
-    fig_learning_comparison_optimistic = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_optimistic, pjs)
-    save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR15.pdf", fig_learning_comparison_optimistic)
+    # fig_learning_overall_base = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_base)
+    # save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR10.pdf", fig_learning_overall_base)
 
-    fig_learning_overall_optimistic = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_optimistic)
-    save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR15.pdf", fig_learning_overall_optimistic)
+    # # Optimistic scenario (LR=15%)
+    # @info("Generating optimistic learning curves (LR=15%)")
+    # fig_learning_comparison_optimistic = learning_curve_comparison_plot(outputpath, opt_scaling, learning_scenarios_optimistic, pjs)
+    # save("$outputpath/fig-learning_curve_by_scale-$opt_scaling-LR15.pdf", fig_learning_comparison_optimistic)
 
-    @info("Learning curve plots saved for all three scenarios (conservative, base, optimistic)")
+    # fig_learning_overall_optimistic = learning_curve_plot(outputpath, opt_scaling, learning_scenarios_optimistic)
+    # save("$outputpath/fig-learning_curve_overall-$opt_scaling-LR15.pdf", fig_learning_overall_optimistic)
+
+    @info("Learning curve by_scale and overall plots disabled (not needed for thesis)")
 else
     @info("Learning scenario files not found - skipping learning curve plots")
     @info("Run smr-mcs-learning.jl first to generate learning scenario data")
