@@ -512,6 +512,13 @@ function mc_run(n::Int64, pj::project, rand_vars)
         # discounted generated electricity
         disc_electricity = zeros(Float64, n, total_time)
 
+        # LCOE component tracking arrays
+        capital_pv = zeros(Float64, n)
+        occ_pv = zeros(Float64, n)      # Overnight construction cost (undiscounted during construction)
+        idc_pv = zeros(Float64, n)      # Interest during construction
+        fixed_om_pv = zeros(Float64, n)
+        variable_om_fuel_pv = zeros(Float64, n)
+
     # simulation loop - iterate over simulations (each has different construction time)
     for i in 1:n
         construction_end = rand_construction_time[i]
@@ -523,6 +530,17 @@ function mc_run(n::Int64, pj::project, rand_vars)
                 cash_out[i,t] = rand_investment[i] / construction_end
                 cash_net[i,t] = -cash_out[i,t]
 
+                # Track capital component (discounted to present value)
+                discounted_payment = cash_out[i,t] / ((1 + rand_wacc[i])^(t-1))
+                capital_pv[i] += discounted_payment
+
+                # OCC is the discounted payment (present value of construction cost)
+                occ_pv[i] += discounted_payment
+
+                # IDC is zero during construction (will be calculated separately)
+                # IDC represents the financing cost, calculated as difference between
+                # nominal total investment and present value of construction payments
+
             elseif t <= lifetime_end
                 # Operating phase
                 electricity[i,t] = pj.plant_capacity * rand_loadfactor[i,t] * 8760
@@ -530,6 +548,12 @@ function mc_run(n::Int64, pj::project, rand_vars)
                 cash_out[i,t] = operating_cost_fix + operating_cost_variable * electricity[i,t]
                 cash_net[i,t] = cash_in[i,t] - cash_out[i,t]
                 disc_electricity[i,t] = electricity[i,t] / ((1 + rand_wacc[i])^(t-1))
+
+                # Track fixed O&M component (discounted)
+                fixed_om_pv[i] += operating_cost_fix / ((1 + rand_wacc[i])^(t-1))
+
+                # Track variable O&M + fuel component (discounted)
+                variable_om_fuel_pv[i] += (operating_cost_variable * electricity[i,t]) / ((1 + rand_wacc[i])^(t-1))
             else
                 # Beyond this simulation's lifetime - arrays already initialized to zero
                 continue
@@ -539,10 +563,21 @@ function mc_run(n::Int64, pj::project, rand_vars)
             disc_cash_out[i,t] = cash_out[i,t] / ((1 + rand_wacc[i])^(t-1))
             disc_cash_net[i,t] = cash_net[i,t] / ((1 + rand_wacc[i])^(t-1))
         end
+
+        # Calculate IDC as the difference between total investment and OCC
+        # This represents the financing cost during construction
+        idc_pv[i] = rand_investment[i] - occ_pv[i]
     end
 
     # output
-    return(disc_cash_out = disc_cash_out, disc_cash_net = disc_cash_net, disc_electricity = disc_electricity)
+    return(disc_cash_out = disc_cash_out,
+           disc_cash_net = disc_cash_net,
+           disc_electricity = disc_electricity,
+           capital_pv = capital_pv,
+           occ_pv = occ_pv,
+           idc_pv = idc_pv,
+           fixed_om_pv = fixed_om_pv,
+           variable_om_fuel_pv = variable_om_fuel_pv)
 
 end
 
@@ -552,7 +587,7 @@ Next, the function creates three local variables disc_cash_out, disc_cash_net, a
 The NPV is then calculated by taking the sum of the disc_cash_net variable along the second dimension using the sum function. Similarly, the LCOE is calculated by taking the ratio of the sum of the disc_cash_out variable along the second dimension to the sum of the disc_electricity variable along the second dimension.
 Finally, the function returns a named tuple with two fields, npv and lcoe with the calculated values.
 """
-function npv_lcoe(disc_res)
+function npv_lcoe(disc_res; decompose=false)
 
     # @info "calculating NPV and LCOE"  # Commented out - too verbose for nested calls
 
@@ -562,6 +597,39 @@ function npv_lcoe(disc_res)
 
     npv = sum(disc_cash_net,dims=2)
     lcoe = sum(disc_cash_out,dims=2) ./ sum(disc_electricity,dims=2)
+
+    # If decompose requested, return component breakdown
+    if decompose && haskey(disc_res, :capital_pv) && haskey(disc_res, :fixed_om_pv) && haskey(disc_res, :variable_om_fuel_pv)
+        total_disc_electricity = sum(disc_electricity, dims=2)
+
+        lcoe_capital = disc_res.capital_pv ./ total_disc_electricity
+        lcoe_fixed_om = disc_res.fixed_om_pv ./ total_disc_electricity
+        lcoe_variable_om_fuel = disc_res.variable_om_fuel_pv ./ total_disc_electricity
+
+        # If OCC and IDC are tracked separately, include them
+        if haskey(disc_res, :occ_pv) && haskey(disc_res, :idc_pv)
+            lcoe_occ = disc_res.occ_pv ./ total_disc_electricity
+            lcoe_idc = disc_res.idc_pv ./ total_disc_electricity
+
+            return (
+                npv = npv,
+                lcoe = lcoe,
+                lcoe_capital = lcoe_capital,
+                lcoe_occ = lcoe_occ,
+                lcoe_idc = lcoe_idc,
+                lcoe_fixed_om = lcoe_fixed_om,
+                lcoe_variable_om_fuel = lcoe_variable_om_fuel
+            )
+        else
+            return (
+                npv = npv,
+                lcoe = lcoe,
+                lcoe_capital = lcoe_capital,
+                lcoe_fixed_om = lcoe_fixed_om,
+                lcoe_variable_om_fuel = lcoe_variable_om_fuel
+            )
+        end
+    end
 
     return(npv = npv, lcoe = lcoe)
 

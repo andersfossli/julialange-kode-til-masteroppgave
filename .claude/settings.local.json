@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(julia run_3_wacc_sensitivity.jl:*)",
+      "Bash(julia plots.jl:*)",
+      "Bash(ls:*)",
+      "Bash(julia run_6_idc_sensitivity.jl:*)",
+      "Bash(julia:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

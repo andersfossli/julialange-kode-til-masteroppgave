@@ -708,11 +708,14 @@ if !isempty(smr_reactors_only)
     @info("✓ Saved: fig-learning_curves_smr-$opt_scaling.pdf")
 end
 
-# PLOT 4: Threshold Probability Curves
+# PLOT 4: Threshold Probability Curves (3 separate figures by scale)
 @info("Generating threshold probability curves...")
-fig_threshold_prob = threshold_probability_curves(lcoe_results, pjs)
-save("$outputpath/fig-threshold_probability-$opt_scaling.pdf", fig_threshold_prob)
-@info("✓ Saved: fig-threshold_probability-$opt_scaling.pdf")
+threshold_figures = threshold_probability_curves(lcoe_results, pjs)
+for (scale, fig) in threshold_figures
+    filename = "$outputpath/fig-threshold_probability_$(lowercase(scale))-$opt_scaling.pdf"
+    save(filename, fig)
+    @info("✓ Saved: fig-threshold_probability_$(lowercase(scale))-$opt_scaling.pdf")
+end
 
 @info("")
 @info("="^80)
