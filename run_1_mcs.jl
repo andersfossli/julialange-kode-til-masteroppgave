@@ -36,7 +36,7 @@ wacc = [0.04, 0.10]
 # construction time ranges by scale [years]
 construction_time_ranges = Dict(
     "Micro" => [3, 8],   # Thesis: 3-8 years, triangular mode 5
-    "SMR"   => [3, 8],   # Thesis: 3-8 years, triangular mode 5
+    "SMR"   => [3, 7],   # Thesis: 3-7 years, triangular mode 5
     "Large" => [5, 13]   # Thesis: 5-13 years, triangular mode 8
 )
 
@@ -59,6 +59,12 @@ lcoe_results = DataFrame()
 wacc_values = DataFrame()
 investment_values = DataFrame()
 
+# initialize component breakdown dataframes
+lcoe_occ_results = DataFrame()
+lcoe_idc_results = DataFrame()
+lcoe_fixed_om_results = DataFrame()
+lcoe_variable_om_fuel_results = DataFrame()
+
 # run simulation for all projects
 for p in eachindex(pjs)
     @info("Running MCS for reactor $(p)/$(length(pjs)): $(pjs[p].name)")
@@ -70,14 +76,27 @@ for p in eachindex(pjs)
     rand_vars = gen_rand_vars(opt_scaling, n, wacc, electricity_price_mean, pjs[p];
                               construction_time_range=construction_time_range)
 
-    # run Monte Carlo simulation
-    results = investment_simulation(pjs[p], rand_vars)
+    # run Monte Carlo simulation with component tracking
+    disc_res = mc_run(n, pjs[p], rand_vars)
+
+    # calculate NPV and LCOE with component breakdown
+    npv_lcoe_res = npv_lcoe(disc_res, decompose=true)
 
     # normalize NPV to plant capacity [EUR/MW]
-    npv_results.res = vec(results[1] / pjs[p].plant_capacity)
+    npv_results.res = vec(npv_lcoe_res.npv / pjs[p].plant_capacity)
     rename!(npv_results, :res => pjs[p].name)
-    lcoe_results.res = vec(results[2])
+    lcoe_results.res = vec(npv_lcoe_res.lcoe)
     rename!(lcoe_results, :res => pjs[p].name)
+
+    # Save component breakdowns
+    lcoe_occ_results.res = vec(npv_lcoe_res.lcoe_occ)
+    rename!(lcoe_occ_results, :res => pjs[p].name)
+    lcoe_idc_results.res = vec(npv_lcoe_res.lcoe_idc)
+    rename!(lcoe_idc_results, :res => pjs[p].name)
+    lcoe_fixed_om_results.res = vec(npv_lcoe_res.lcoe_fixed_om)
+    rename!(lcoe_fixed_om_results, :res => pjs[p].name)
+    lcoe_variable_om_fuel_results.res = vec(npv_lcoe_res.lcoe_variable_om_fuel)
+    rename!(lcoe_variable_om_fuel_results, :res => pjs[p].name)
 
     # Save WACC and investment values
     wacc_values.res = vec(rand_vars.wacc)
@@ -90,13 +109,19 @@ end
 npv_summary = describe(npv_results, :all)
 lcoe_summary = describe(lcoe_results, :all)
 
-# output
+# output - main results
 CSV.write("$outputpath/mcs-npv_results-$opt_scaling.csv", npv_results)
 CSV.write("$outputpath/mcs-npv_summary-$opt_scaling.csv", npv_summary[!,1:8])
 CSV.write("$outputpath/mcs-lcoe_results-$opt_scaling.csv", lcoe_results)
 CSV.write("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", lcoe_summary[!,1:8])
 CSV.write("$outputpath/mcs-wacc_values-$opt_scaling.csv", wacc_values)
 CSV.write("$outputpath/mcs-investment_values-$opt_scaling.csv", investment_values)
+
+# output - LCOE component breakdown
+CSV.write("$outputpath/mcs-lcoe_occ-$opt_scaling.csv", lcoe_occ_results)
+CSV.write("$outputpath/mcs-lcoe_idc-$opt_scaling.csv", lcoe_idc_results)
+CSV.write("$outputpath/mcs-lcoe_fixed_om-$opt_scaling.csv", lcoe_fixed_om_results)
+CSV.write("$outputpath/mcs-lcoe_variable_om_fuel-$opt_scaling.csv", lcoe_variable_om_fuel_results)
 
 @info("="^80)
 @info("MONTE CARLO SIMULATION COMPLETE")
@@ -107,5 +132,9 @@ CSV.write("$outputpath/mcs-investment_values-$opt_scaling.csv", investment_value
 @info("  - mcs-*_summary-$opt_scaling.csv")
 @info("  - mcs-wacc_values-$opt_scaling.csv")
 @info("  - mcs-investment_values-$opt_scaling.csv")
+@info("  - mcs-lcoe_occ-$opt_scaling.csv (NEW: OCC component)")
+@info("  - mcs-lcoe_idc-$opt_scaling.csv (NEW: IDC component)")
+@info("  - mcs-lcoe_fixed_om-$opt_scaling.csv (NEW: Fixed O&M component)")
+@info("  - mcs-lcoe_variable_om_fuel-$opt_scaling.csv (NEW: Variable O&M+Fuel component)")
 @info("")
 @info("Next step: Run run_2_sensitivity.jl for Sobol sensitivity indices")

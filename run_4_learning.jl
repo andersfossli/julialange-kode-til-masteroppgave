@@ -38,7 +38,7 @@ wacc = [0.04, 0.10]
 # construction time ranges by scale [years]
 construction_time_ranges = Dict(
     "Micro" => [3, 8],   # Thesis: 3-8 years, triangular mode 5 technology → wider range (3-7 years)
-    "SMR"   => [3, 8],   # Thesis: 3-8 years, triangular mode 5 technology → wider range (3-7 years)
+    "SMR"   => [3, 7],   # Thesis: 3-7 years, triangular mode 5 technology → wider range (3-7 years)
     "Large" => [5, 13]   # Thesis: 5-13 years, triangular mode 8 data: Korea 5-6 yrs, US/Europe 7-12 yrs
 )
 

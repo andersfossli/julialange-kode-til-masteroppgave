@@ -26,7 +26,7 @@ include("config.jl")  # Get opt_scaling parameter
 scale = "SMR"
 wacc = [0.04, 0.10]  # WACC range (matching run_1_mcs.jl)
 electricity_price_mean = mean([52.2, 95.8])
-construction_time_range = [3, 8]  # SMR construction time range
+construction_time_range = [3, 7]  # SMR construction time range (3-7 years, triangular mode 5)
 scaling = [0.4, 0.7]  # Scaling parameter range
 
 @info "Analysis Configuration:"
