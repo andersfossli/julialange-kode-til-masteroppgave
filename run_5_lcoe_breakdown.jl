@@ -81,7 +81,8 @@ if component_files_exist
             median_idc = median(all_breakdown_results[pj.name].lcoe_idc)
             median_fixed_om = median(all_breakdown_results[pj.name].lcoe_fixed_om)
             median_variable = median(all_breakdown_results[pj.name].lcoe_variable_om_fuel)
-            median_total = median_occ + median_idc + median_fixed_om + median_variable
+            # FIXED: Use median of totals, not sum of medians
+            median_total = median(all_breakdown_results[pj.name].lcoe)
 
             @info "  $(pj.name): $(round(median_total, digits=1)) EUR/MWh (OCC: $(round(median_occ/median_total*100, digits=1))%, IDC: $(round(median_idc/median_total*100, digits=1))%)"
         end

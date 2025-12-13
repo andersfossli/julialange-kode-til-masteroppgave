@@ -530,11 +530,11 @@ function mc_run(n::Int64, pj::project, rand_vars)
                 cash_out[i,t] = rand_investment[i] / construction_end
                 cash_net[i,t] = -cash_out[i,t]
 
-                # Track capital component (discounted to present value)
-                discounted_payment = cash_out[i,t] / ((1 + rand_wacc[i])^(t-1))
-                capital_pv[i] += discounted_payment
+                # Track capital component (NOMINAL investment, will equal OCC + IDC)
+                capital_pv[i] += cash_out[i,t]
 
-                # OCC is the discounted payment (present value of construction cost)
+                # OCC is the DISCOUNTED payment (present value of construction cost)
+                discounted_payment = cash_out[i,t] / ((1 + rand_wacc[i])^(t-1))
                 occ_pv[i] += discounted_payment
 
                 # IDC is zero during construction (will be calculated separately)
@@ -564,9 +564,12 @@ function mc_run(n::Int64, pj::project, rand_vars)
             disc_cash_net[i,t] = cash_net[i,t] / ((1 + rand_wacc[i])^(t-1))
         end
 
-        # Calculate IDC as the difference between total investment and OCC
+        # Calculate IDC as difference between nominal investment and PV of construction payments
         # This represents the financing cost during construction
-        idc_pv[i] = rand_investment[i] - occ_pv[i]
+        # capital_pv tracks the NOMINAL investment (accumulated at line 534)
+        # occ_pv tracks the PRESENT VALUE of construction payments
+        # idc_pv = nominal - PV = the financing cost
+        idc_pv[i] = capital_pv[i] - occ_pv[i]
     end
 
     # output
@@ -596,11 +599,21 @@ function npv_lcoe(disc_res; decompose=false)
     disc_electricity = disc_res.disc_electricity
 
     npv = sum(disc_cash_net,dims=2)
-    lcoe = sum(disc_cash_out,dims=2) ./ sum(disc_electricity,dims=2)
+
+    # FIXED: Use capital_pv (nominal investment) instead of just PV from disc_cash_out
+    # This ensures LCOE includes the full capital cost (OCC + IDC)
+    total_disc_electricity = sum(disc_electricity, dims=2)
+    if haskey(disc_res, :capital_pv) && haskey(disc_res, :fixed_om_pv) && haskey(disc_res, :variable_om_fuel_pv)
+        # Use component-based LCOE calculation with nominal capital cost
+        lcoe = (disc_res.capital_pv .+ disc_res.fixed_om_pv .+ disc_res.variable_om_fuel_pv) ./ total_disc_electricity
+    else
+        # Fallback to disc_cash_out if components not available
+        lcoe = sum(disc_cash_out,dims=2) ./ total_disc_electricity
+    end
 
     # If decompose requested, return component breakdown
     if decompose && haskey(disc_res, :capital_pv) && haskey(disc_res, :fixed_om_pv) && haskey(disc_res, :variable_om_fuel_pv)
-        total_disc_electricity = sum(disc_electricity, dims=2)
+        # total_disc_electricity already calculated above
 
         lcoe_capital = disc_res.capital_pv ./ total_disc_electricity
         lcoe_fixed_om = disc_res.fixed_om_pv ./ total_disc_electricity
@@ -1358,8 +1371,9 @@ function shapley_sensitivity_index(opt_scaling::String, n::Int64, wacc::Vector, 
     # Tradeoff: accuracy vs computational cost
     # For testing: n_outer=20, n_inner=50 → 1000 evals/coalition
     # For production: n_outer=50, n_inner=100 → 5000 evals/coalition
-    n_outer = 50   # Number of X_S realizations (outer loop) - PRODUCTION
-    n_inner = 100  # Number of X_~S samples per X_S (inner loop)
+    # For high-accuracy: n_outer=100, n_inner=200 → 20000 evals/coalition
+    n_outer = 100   # Number of X_S realizations (outer loop) - HIGH ACCURACY
+    n_inner = 200  # Number of X_~S samples per X_S (inner loop)
 
     # OPTIMIZATION: Use smaller n_base for total variance (doesn't need 100k samples!)
     # Base variance is only used for reference, nested sampling is the main computation

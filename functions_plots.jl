@@ -1,4 +1,48 @@
 """
+    decompose_capital_to_occ_idc(capital_pv_values, wacc_values, construction_time_values)
+
+Illustrative decomposition of capital cost (from DCF) into OCC and IDC components
+using the Wealer explicit IDC formula.
+
+This is for visualization purposes only. The actual simulation uses DCF framework
+where IDC is implicitly captured through present value discounting. This function
+back-calculates what OCC and IDC would be if using the explicit IDC approach.
+
+# Arguments
+- `capital_pv_values`: Array of capital cost (nominal) from DCF simulation
+- `wacc_values`: Array of WACC values used in simulation
+- `construction_time_values`: Array of construction times used in simulation
+
+# Returns
+- `(occ_values, idc_values)`: Illustrative split of capital cost
+
+# Formula
+IDC = OCC × [(r/2)×T + (r²/6)×T²]  (Wealer formula)
+TCC = OCC + IDC
+Therefore: OCC = capital_pv / (1 + IDC_factor)
+"""
+function decompose_capital_to_occ_idc(capital_pv_values, wacc_values, construction_time_values)
+    n = length(capital_pv_values)
+    occ_illustrative = zeros(Float64, n)
+    idc_illustrative = zeros(Float64, n)
+
+    for i in 1:n
+        # Calculate IDC factor using Wealer formula
+        T = construction_time_values[i]
+        r = wacc_values[i]
+        idc_factor = (r/2) * T + (r^2/6) * T^2
+
+        # capital_pv is the nominal total capital cost (TCC) in our DCF framework
+        # TCC = OCC × (1 + idc_factor)
+        # Solving for OCC:
+        occ_illustrative[i] = capital_pv_values[i] / (1 + idc_factor)
+        idc_illustrative[i] = capital_pv_values[i] - occ_illustrative[i]
+    end
+
+    return (occ_illustrative, idc_illustrative)
+end
+
+"""
 The investment_plot function generates a comparison plot of investment values for manufacturer vs. estimated costs for multiple projects. The function takes in two arguments: a vector pjs containing project objects to be compared, and a boolean scaling_plot which indicates whether to scale the investment values by the project capacity.
 The function first generates scaled investment values for all projects using the gen_scaled_investment function, and stores them in a DataFrame. The DataFrame columns are named after the project names.
 The function then creates a new figure object and defines the x-axis label and y-axis tick labels based on the input DataFrame.
@@ -2055,75 +2099,52 @@ Includes Lazard 2025 benchmark data for renewables and conventionals.
 - `Figure`: Makie figure object matching original style
 """
 function lcoe_comparison_horizontal(lcoe_results::DataFrame, pjs::Vector, opt_scaling::String)
+    # NOTE: lcoe_results parameter kept for backwards compatibility but no longer used
+    # Now reads from pre-calculated summary statistics for consistency
 
     # Read Lazard LCOE data from CSV (same as original code)
     inputpath = "_input"
+    outputpath = "_output"
     lcoe_dat = CSV.read("$inputpath/lcoe_data.csv", DataFrame)
 
-    # Group reactors by scale
-    large_reactors = [pj for pj in pjs if pj.scale == "Large"]
-    micro_reactors = [pj for pj in pjs if pj.scale == "Micro"]
-    smr_reactors = [pj for pj in pjs if pj.scale == "SMR"]
+    # FIXED: Read pre-calculated summary statistics instead of recalculating from raw data
+    # This ensures consistency with published summary statistics
+    lcoe_summary = CSV.read("$outputpath/mcs-lcoe_summary-$opt_scaling.csv", DataFrame)
 
-    # Calculate Q25 and Q75 for each reactor (matching original lcoe_bounds logic)
-    lcoe_bounds = DataFrame(q25 = Float64[], q75 = Float64[])
-
-    for pj in pjs
-        if hasproperty(lcoe_results, pj.name)
-            push!(lcoe_bounds, (
-                quantile(lcoe_results[!, pj.name], 0.25),
-                quantile(lcoe_results[!, pj.name], 0.75)
-            ))
-        end
+    # Create a lookup dictionary for Q25/Q75 by reactor name
+    lcoe_bounds_dict = Dict{String, Tuple{Float64, Float64}}()
+    for row in eachrow(lcoe_summary)
+        lcoe_bounds_dict[row.variable] = (row.q25, row.q75)
     end
 
-    # Count reactors in each scale
-    n_large = length(large_reactors)
-    n_micro = length(micro_reactors)
-    n_smr = length(smr_reactors)
+    # FIXED: Calculate aggregated ranges BY TYPE for each scale using reactor names
+    # Previous code had broken indexing - reactors aren't ordered by scale in the file
 
-    # Build technology names list (matching original order but extended)
-    # Original was: Lazard data + ["BWR & PWR SMRs", "HTR SMRs", "SFR SMRs"]
-    # Now: Lazard data + Large by type + Micro by type + SMR by type
+    # Helper function to get bounds for reactors matching scale and types
+    function get_bounds_for_group(scale::String, types::Vector{String})
+        matching_names = [pj.name for pj in pjs if pj.scale == scale && pj.type in types]
+        if isempty(matching_names)
+            return (0.0, 0.0)
+        end
+        q25_vals = [lcoe_bounds_dict[name][1] for name in matching_names if haskey(lcoe_bounds_dict, name)]
+        q75_vals = [lcoe_bounds_dict[name][2] for name in matching_names if haskey(lcoe_bounds_dict, name)]
+        return (minimum(q25_vals), maximum(q75_vals))
+    end
 
-    # Calculate aggregated ranges BY TYPE for each scale (like SMR)
     # LARGE reactors by type
-    large_pwr_bwr = [i for (i, pj) in enumerate(large_reactors) if pj.type in ["PWR", "BWR"]]
-    large_htr = [i for (i, pj) in enumerate(large_reactors) if pj.type == "HTR"]
-    large_sfr = [i for (i, pj) in enumerate(large_reactors) if pj.type == "SFR"]
-
-    large_pwr_lower = !isempty(large_pwr_bwr) ? minimum([lcoe_bounds[i, :q25] for i in large_pwr_bwr]) : 0.0
-    large_pwr_upper = !isempty(large_pwr_bwr) ? maximum([lcoe_bounds[i, :q75] for i in large_pwr_bwr]) : 0.0
-    large_htr_lower = !isempty(large_htr) ? minimum([lcoe_bounds[i, :q25] for i in large_htr]) : 0.0
-    large_htr_upper = !isempty(large_htr) ? maximum([lcoe_bounds[i, :q75] for i in large_htr]) : 0.0
-    large_sfr_lower = !isempty(large_sfr) ? minimum([lcoe_bounds[i, :q25] for i in large_sfr]) : 0.0
-    large_sfr_upper = !isempty(large_sfr) ? maximum([lcoe_bounds[i, :q75] for i in large_sfr]) : 0.0
+    large_pwr_lower, large_pwr_upper = get_bounds_for_group("Large", ["PWR", "BWR"])
+    large_htr_lower, large_htr_upper = get_bounds_for_group("Large", ["HTR"])
+    large_sfr_lower, large_sfr_upper = get_bounds_for_group("Large", ["SFR"])
 
     # MICRO reactors by type
-    micro_start_idx = n_large + 1
-    micro_pwr_bwr = [i for (i, pj) in enumerate(micro_reactors) if pj.type in ["PWR", "BWR"]]
-    micro_htr = [i for (i, pj) in enumerate(micro_reactors) if pj.type == "HTR"]
-    micro_sfr = [i for (i, pj) in enumerate(micro_reactors) if pj.type == "SFR"]
-
-    micro_pwr_lower = !isempty(micro_pwr_bwr) ? minimum([lcoe_bounds[micro_start_idx + i - 1, :q25] for i in micro_pwr_bwr]) : 0.0
-    micro_pwr_upper = !isempty(micro_pwr_bwr) ? maximum([lcoe_bounds[micro_start_idx + i - 1, :q75] for i in micro_pwr_bwr]) : 0.0
-    micro_htr_lower = !isempty(micro_htr) ? minimum([lcoe_bounds[micro_start_idx + i - 1, :q25] for i in micro_htr]) : 0.0
-    micro_htr_upper = !isempty(micro_htr) ? maximum([lcoe_bounds[micro_start_idx + i - 1, :q75] for i in micro_htr]) : 0.0
-    micro_sfr_lower = !isempty(micro_sfr) ? minimum([lcoe_bounds[micro_start_idx + i - 1, :q25] for i in micro_sfr]) : 0.0
-    micro_sfr_upper = !isempty(micro_sfr) ? maximum([lcoe_bounds[micro_start_idx + i - 1, :q75] for i in micro_sfr]) : 0.0
+    micro_pwr_lower, micro_pwr_upper = get_bounds_for_group("Micro", ["PWR", "BWR"])
+    micro_htr_lower, micro_htr_upper = get_bounds_for_group("Micro", ["HTR"])
+    micro_sfr_lower, micro_sfr_upper = get_bounds_for_group("Micro", ["SFR"])
 
     # SMR reactors by type
-    smr_pwr_bwr = [i for (i, pj) in enumerate(smr_reactors) if pj.type in ["PWR", "BWR"]]
-    smr_htr = [i for (i, pj) in enumerate(smr_reactors) if pj.type == "HTR"]
-    smr_sfr = [i for (i, pj) in enumerate(smr_reactors) if pj.type == "SFR"]
-
-    smr_start_idx = n_large + n_micro + 1
-    smr_pwr_lower = !isempty(smr_pwr_bwr) ? minimum([lcoe_bounds[smr_start_idx + i - 1, :q25] for i in smr_pwr_bwr]) : 0.0
-    smr_pwr_upper = !isempty(smr_pwr_bwr) ? maximum([lcoe_bounds[smr_start_idx + i - 1, :q75] for i in smr_pwr_bwr]) : 0.0
-    smr_htr_lower = !isempty(smr_htr) ? minimum([lcoe_bounds[smr_start_idx + i - 1, :q25] for i in smr_htr]) : 0.0
-    smr_htr_upper = !isempty(smr_htr) ? maximum([lcoe_bounds[smr_start_idx + i - 1, :q75] for i in smr_htr]) : 0.0
-    smr_sfr_lower = !isempty(smr_sfr) ? minimum([lcoe_bounds[smr_start_idx + i - 1, :q25] for i in smr_sfr]) : 0.0
-    smr_sfr_upper = !isempty(smr_sfr) ? maximum([lcoe_bounds[smr_start_idx + i - 1, :q75] for i in smr_sfr]) : 0.0
+    smr_pwr_lower, smr_pwr_upper = get_bounds_for_group("SMR", ["PWR", "BWR"])
+    smr_htr_lower, smr_htr_upper = get_bounds_for_group("SMR", ["HTR"])
+    smr_sfr_lower, smr_sfr_upper = get_bounds_for_group("SMR", ["SFR"])
 
     # Build plot data with reactor types for each scale
     lcoe_plot_data = vcat(
@@ -2424,6 +2445,21 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
         end
     end
 
+    # Load vendor target LCOE (manufacturer-based baseline)
+    vendor_file = "$outputpath/mcs-lcoe_summary-manufacturer-baseline.csv"
+    vendor_target_lcoe = Dict{String, Float64}()
+
+    if isfile(vendor_file)
+        vendor_data = CSV.read(vendor_file, DataFrame)
+        if "variable" in names(vendor_data) && "median" in names(vendor_data)
+            for row in eachrow(vendor_data)
+                vendor_target_lcoe[row.variable] = row.median
+            end
+        end
+    else
+        @warn "Vendor target file not found: $vendor_file"
+    end
+
     for (idx, pj) in enumerate(all_reactors)
         row = div(idx - 1, n_cols) + 1
         col = mod(idx - 1, n_cols) + 1
@@ -2439,6 +2475,16 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
 
         # Get color for this reactor type
         reactor_color = get(reactor_type_colors, pj.type, :gray)
+
+        # Add vendor target line (if available)
+        vendor_lcoe = get(vendor_target_lcoe, pj.name, nothing)
+        if !isnothing(vendor_lcoe)
+            hlines!(ax, [vendor_lcoe];
+                   color = :black,
+                   linestyle = :dash,
+                   linewidth = 1.5,
+                   label = idx == 1 ? "Vendor target (manufacturer OCC)" : "")
+        end
 
         # Plot learning curves with confidence bands
         for LR in learning_rates
@@ -2477,6 +2523,22 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
                     markersize = LR == 0.10 ? 8 : 6,  # Larger dots for baseline
                     strokewidth = 1,
                     strokecolor = :white)
+
+            # Mark learning threshold where curve meets vendor target
+            if !isnothing(vendor_lcoe)
+                idx_hit = findfirst(x -> x <= vendor_lcoe, lcoe_curve)
+                if !isnothing(idx_hit)
+                    N_hit = N_values[idx_hit]
+                    vlines!(ax, [N_hit];
+                           color = reactor_color,
+                           linestyle = :dash,
+                           linewidth = 1)
+                    scatter!(ax, [N_hit], [lcoe_curve[idx_hit]];
+                            color = reactor_color,
+                            markersize = 7,
+                            strokewidth = 1)
+                end
+            end
         end
 
         # Add legend to first subplot with reactor type color indicator
@@ -2971,15 +3033,15 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
                             base_construction_time::Int, delayed_construction_time::Int,
                             opt_scaling::String)
 
-    # Filter reactors by scale
-    scale_reactors = filter(p -> p.scale == scale, pjs)
+    # FIXED: Use BWRX-300 only to match standalone donut and aggregate breakdown
+    scale_reactors = filter(p -> p.name == "BWRX-300", pjs)
 
     if isempty(scale_reactors)
-        @error "No reactors found for scale: $scale"
+        @error "BWRX-300 reactor not found"
         return nothing
     end
 
-    @info "Aggregating $(length(scale_reactors)) $(scale) reactors for IDC analysis (using $opt_scaling scaling)"
+    @info "Creating IDC sensitivity for BWRX-300 (using $opt_scaling scaling)"
 
     # Calculate SCALED investment for each reactor (matching simulation methodology)
     scaling_range = [0.4, 0.7]  # Beta scaling range
@@ -3016,15 +3078,15 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
         push!(lifetimes, p.time[2])
     end
 
-    # Calculate averages using SCALED values
-    occ = mean(scaled_investments)  # EUR (total scaled OCC)
+    # Get BWRX-300 values (single reactor, but keep mean() for code compatibility)
+    occ = mean(scaled_investments)  # EUR (BWRX-300 scaled OCC)
     avg_capacity = mean(capacities)  # MW
-    avg_loadfactor = mean(loadfactors)  # Use nuclear typical if needed
+    avg_loadfactor = mean(loadfactors)
     avg_lifetime = Int(mean(lifetimes))  # Years
 
-    @info "  Average SCALED OCC: $(round(occ/1e9, digits=2)) billion EUR"
-    @info "  Average capacity: $(round(avg_capacity, digits=0)) MW"
-    @info "  Average load factor: $(round(avg_loadfactor, digits=2))"
+    @info "  BWRX-300 SCALED OCC: $(round(occ/1e6, digits=1)) million EUR"
+    @info "  Capacity: $(round(avg_capacity, digits=0)) MW"
+    @info "  Load factor: $(round(avg_loadfactor, digits=2))"
 
     # Calculate IDC using explicit formula
     # IDC = OCC × [(r/2)×T_con + (r²/6)×T_con²]
@@ -3041,8 +3103,8 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
     idc_delayed = calculate_idc(delayed_construction_time, wacc, occ)
     total_delayed = occ + idc_delayed
 
-    @info "  On-time IDC: $(round(idc_base/1e9, digits=2)) billion EUR ($(round(idc_base/total_base*100, digits=1))%)"
-    @info "  Delayed IDC: $(round(idc_delayed/1e9, digits=2)) billion EUR ($(round(idc_delayed/total_delayed*100, digits=1))%)"
+    @info "  On-time IDC: $(round(idc_base/1e6, digits=1)) million EUR ($(round(idc_base/total_base*100, digits=1))%)"
+    @info "  Delayed IDC: $(round(idc_delayed/1e6, digits=1)) million EUR ($(round(idc_delayed/total_delayed*100, digits=1))%)"
 
     # Calculate LCOE components
     annual_generation = avg_capacity * avg_loadfactor * 8760  # MWh/year
@@ -3167,36 +3229,50 @@ function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::V
                                        electricity_price_mean::Float64, opt_scaling::String,
                                        construction_time_range::Vector{Int})
 
-    scale_reactors = filter(p -> p.scale == scale, pjs)
+    # FIXED: Use only BWRX-300 to match standalone donut and IDC sensitivity
+    scale_reactors = filter(p -> p.name == "BWRX-300", pjs)
     if isempty(scale_reactors)
-        @error "No reactors found for scale: $scale"
+        @error "BWRX-300 reactor not found"
         return nothing
     end
 
-    @info "Aggregating $(length(scale_reactors)) $(scale) reactors for LCOE breakdown (using $opt_scaling scaling)"
+    @info "Creating LCOE breakdown for BWRX-300 (using $opt_scaling scaling)"
 
-    n = 10000
-    all_occ = Float64[]
-    all_idc = Float64[]
+    n = 1_000_000  # Match main MCS and standalone donut
+    all_capital = Float64[]
+    all_wacc = Float64[]
+    all_construction_time = Int[]
     all_fixed_om = Float64[]
     all_variable_om_fuel = Float64[]
+    all_total = Float64[]  # FIXED: Track total LCOE for correct median
 
     for p in scale_reactors
         rand_vars = gen_rand_vars(opt_scaling, n, wacc_range, electricity_price_mean, p;
                                   construction_time_range=construction_time_range)
         disc_res = mc_run(n, p, rand_vars)
         res = npv_lcoe(disc_res, decompose=true)
-        append!(all_occ, res.lcoe_occ)
-        append!(all_idc, res.lcoe_idc)
+
+        # Collect capital cost and parameters for OCC/IDC decomposition
+        append!(all_capital, res.lcoe_capital)
+        append!(all_wacc, rand_vars.wacc)
+        append!(all_construction_time, rand_vars.construction_time)
         append!(all_fixed_om, res.lcoe_fixed_om)
         append!(all_variable_om_fuel, res.lcoe_variable_om_fuel)
+        # FIXED: Use authoritative total LCOE from npv_lcoe function
+        append!(all_total, res.lcoe)
     end
 
-    median_occ = median(all_occ)
-    median_idc = median(all_idc)
+    # Decompose capital into OCC and IDC (illustrative, using Wealer formula)
+    occ_illustrative, idc_illustrative = decompose_capital_to_occ_idc(
+        all_capital, all_wacc, all_construction_time
+    )
+
+    # Take medians
+    median_occ = median(occ_illustrative)
+    median_idc = median(idc_illustrative)
     median_fixed_om = median(all_fixed_om)
     median_variable = median(all_variable_om_fuel)
-    median_total = median_occ + median_idc + median_fixed_om + median_variable
+    median_total = median(all_total)  # FIXED: median of totals, not sum of medians
 
     @info "  Median LCOE: $(round(median_total, digits=1)) EUR2025/MWh"
     @info "    OCC: $(round(median_occ, digits=1)) ($(round(median_occ/median_total*100, digits=1))%)"
@@ -3204,11 +3280,12 @@ function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::V
     @info "    Fixed O&M: $(round(median_fixed_om, digits=1)) ($(round(median_fixed_om/median_total*100, digits=1))%)"
     @info "    Variable O&M+Fuel: $(round(median_variable, digits=1)) ($(round(median_variable/median_total*100, digits=1))%)"
 
+    # Define colors for all 4 components (matching standalone donut)
     component_colors = Dict(
-        "OCC" => RGBf(0.0, 0.5, 0.5),
-        "IDC" => RGBf(0.8, 0.4, 0.0),
-        "Fixed O&M" => RGBf(0.7, 0.6, 0.0),
-        "Variable O&M + Fuel" => RGBf(0.8, 0.2, 0.2)
+        "OCC" => RGBf(0.2, 0.4, 0.8),
+        "IDC" => RGBf(0.9, 0.5, 0.2),
+        "Fixed O&M" => RGBf(0.3, 0.7, 0.3),
+        "Variable O&M + Fuel" => RGBf(0.9, 0.3, 0.3)
     )
 
     fig = Figure(size=(1400, 700), backgroundcolor=:white)
@@ -3216,30 +3293,33 @@ function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::V
     ax1 = Axis(fig[1,1],
               title = "Stacked Bar Chart",
               ylabel = "LCOE [EUR2025/MWh]",
-              xticks = ([1], ["Aggregated\n$scale"]),
+              xticks = ([1], ["BWRX-300"]),
               xgridvisible = false,
               ygridvisible = true,
               ygridcolor = (:gray, 0.2),
               ygridstyle = :dash)
 
+    # Stack all 4 components
     barplot!(ax1, [1], [median_occ], color=component_colors["OCC"], width=0.6)
-    barplot!(ax1, [1], [median_idc], offset=[median_occ], color=component_colors["IDC"], width=0.6)
+    barplot!(ax1, [1], [median_idc], offset=[median_occ],
+             color=component_colors["IDC"], width=0.6)
     barplot!(ax1, [1], [median_fixed_om], offset=[median_occ + median_idc],
              color=component_colors["Fixed O&M"], width=0.6)
     barplot!(ax1, [1], [median_variable], offset=[median_occ + median_idc + median_fixed_om],
              color=component_colors["Variable O&M + Fuel"], width=0.6)
 
+    # Add text labels to each component
     text!(ax1, 1, median_occ/2,
          text="OCC\n$(round(median_occ, digits=1))\n($(round(median_occ/median_total*100, digits=1))%)",
          align=(:center, :center), color=:white, fontsize=12, font=:bold)
 
     text!(ax1, 1, median_occ + median_idc/2,
          text="IDC\n$(round(median_idc, digits=1))\n($(round(median_idc/median_total*100, digits=1))%)",
-         align=(:center, :center), color=:white, fontsize=12, font=:bold)
+         align=(:center, :center), color=:black, fontsize=12, font=:bold)
 
     text!(ax1, 1, median_occ + median_idc + median_fixed_om/2,
          text="Fixed O&M\n$(round(median_fixed_om, digits=1))\n($(round(median_fixed_om/median_total*100, digits=1))%)",
-         align=(:center, :center), color=:black, fontsize=12, font=:bold)
+         align=(:center, :center), color=:white, fontsize=12, font=:bold)
 
     text!(ax1, 1, median_occ + median_idc + median_fixed_om + median_variable/2,
          text="Variable\n$(round(median_variable, digits=1))\n($(round(median_variable/median_total*100, digits=1))%)",
@@ -3254,14 +3334,16 @@ function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::V
     hidespines!(ax2)
 
     values = [median_occ, median_idc, median_fixed_om, median_variable]
-    colors_donut = [component_colors["OCC"], component_colors["IDC"],
-                    component_colors["Fixed O&M"], component_colors["Variable O&M + Fuel"]]
+    colors_donut = [component_colors["OCC"],
+                    component_colors["IDC"],
+                    component_colors["Fixed O&M"],
+                    component_colors["Variable O&M + Fuel"]]
     labels = ["OCC", "IDC", "Fixed O&M", "Variable O&M+Fuel"]
 
-    total_val = sum(values)
+    # FIXED: Use median_total (median of totals), not sum(values) (sum of medians)
     angles = [0.0]
     for v in values
-        push!(angles, angles[end] + 2π * v / total_val)
+        push!(angles, angles[end] + 2π * v / median_total)
     end
 
     for i in 1:length(values)
@@ -3277,14 +3359,15 @@ function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::V
         x_poly = vcat(x_outer, x_inner)
         y_poly = vcat(y_outer, y_inner)
 
-        poly!(ax2, Point2f.(x_poly, y_poly), color=colors_donut[i], strokewidth=1, strokecolor=:white)
+        poly!(ax2, Point2f.(x_poly, y_poly), color=colors_donut[i], strokewidth=2, strokecolor=:white)
 
         mid_angle = (angles[i] + angles[i+1]) / 2
         label_radius = 0.75
         x_label = label_radius * cos(mid_angle)
         y_label = label_radius * sin(mid_angle)
 
-        pct = round(values[i] / total_val * 100, digits=1)
+        # FIXED: Calculate percentage against median_total, not sum(values)
+        pct = round(values[i] / median_total * 100, digits=1)
         text!(ax2, x_label, y_label,
              text="$(labels[i])\n$(round(values[i], digits=1))\n($(pct)%)",
              align=(:center, :center), color=:white, fontsize=11, font=:bold)
@@ -3294,7 +3377,7 @@ function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::V
     ylims!(ax2, -1.3, 1.3)
 
     Label(fig[0, :],
-          "LCOE Component Breakdown: Aggregated $(scale) Reactors ($opt_scaling scaling)",
+          "LCOE Component Breakdown: BWRX-300 Reactor ($opt_scaling scaling)",
           fontsize=20, font=:bold)
 
     legend_elements = [
@@ -3318,6 +3401,13 @@ function plot_lcoe_breakdown_aggregate(pjs::Vector, scale::String, wacc_range::V
            tellheight=true,
            framevisible=true)
 
+    # Add caption explaining illustrative decomposition
+    Label(fig[3, :],
+          "Note: OCC and IDC shown as illustrative decomposition using Wealer formula: IDC = OCC × [(r/2)×T + (r²/6)×T²].\nSimulation uses DCF framework where IDC is implicit in present value calculations.",
+          fontsize=10,
+          tellwidth=false,
+          justification=:left)
+
     return fig
 end
 
@@ -3332,64 +3422,85 @@ function plot_lcoe_donut_standalone(pjs::Vector, scale::String, wacc_range::Vect
                                     electricity_price_mean::Float64, opt_scaling::String,
                                     construction_time_range::Vector{Int})
 
-    scale_reactors = filter(p -> p.scale == scale, pjs)
+    # Filter for BWRX-300 only
+    scale_reactors = filter(p -> p.name == "BWRX-300", pjs)
     if isempty(scale_reactors)
-        @error "No reactors found for scale: $scale"
+        @error "BWRX-300 reactor not found"
         return nothing
     end
 
-    @info "Creating standalone donut chart for $(length(scale_reactors)) $(scale) reactors"
+    @info "Creating standalone donut chart for BWRX-300"
 
-    n = 10000
-    all_occ = Float64[]
-    all_idc = Float64[]
+    n = 1_000_000  # Match main MCS sample size for accuracy
+    all_capital = Float64[]
+    all_wacc = Float64[]
+    all_construction_time = Int[]
     all_fixed_om = Float64[]
     all_variable_om_fuel = Float64[]
+    all_total = Float64[]
 
     for p in scale_reactors
         rand_vars = gen_rand_vars(opt_scaling, n, wacc_range, electricity_price_mean, p;
                                   construction_time_range=construction_time_range)
         disc_res = mc_run(n, p, rand_vars)
         res = npv_lcoe(disc_res, decompose=true)
-        append!(all_occ, res.lcoe_occ)
-        append!(all_idc, res.lcoe_idc)
+
+        # Collect capital cost and parameters for OCC/IDC decomposition
+        append!(all_capital, res.lcoe_capital)
+        append!(all_wacc, rand_vars.wacc)
+        append!(all_construction_time, rand_vars.construction_time)
         append!(all_fixed_om, res.lcoe_fixed_om)
         append!(all_variable_om_fuel, res.lcoe_variable_om_fuel)
+        append!(all_total, res.lcoe)
     end
 
-    median_occ = median(all_occ)
-    median_idc = median(all_idc)
-    median_fixed_om = median(all_fixed_om)
-    median_variable = median(all_variable_om_fuel)
-    median_total = median_occ + median_idc + median_fixed_om + median_variable
-
-    @info "  Median LCOE: $(round(median_total, digits=1)) EUR2025/MWh"
-
-    # More vibrant colors
-    component_colors = Dict(
-        "OCC" => RGBf(0.0, 0.65, 0.65),             # Brighter teal
-        "IDC" => RGBf(1.0, 0.55, 0.0),              # Vibrant orange
-        "Fixed O&M" => RGBf(0.95, 0.85, 0.0),       # Bright yellow
-        "Variable O&M + Fuel" => RGBf(1.0, 0.3, 0.3)  # Vibrant red
+    # Decompose capital into OCC and IDC (illustrative, using Wealer formula)
+    occ_illustrative, idc_illustrative = decompose_capital_to_occ_idc(
+        all_capital, all_wacc, all_construction_time
     )
 
-    # Create figure - larger for standalone use
-    fig = Figure(size=(1000, 1000), backgroundcolor=:white)
+    # Take medians
+    median_occ = median(occ_illustrative)
+    median_idc = median(idc_illustrative)
+    median_fixed_om = median(all_fixed_om)
+    median_variable = median(all_variable_om_fuel)
+    median_total = median(all_total)
 
-    # Create donut chart
-    ax = Axis(fig[1, 1], aspect = DataAspect())
+    @info "  Median LCOE: $(round(median_total, digits=1)) EUR2025/MWh"
+    @info "    OCC (illustrative): $(round(median_occ, digits=1)) ($(round(median_occ/median_total*100, digits=1))%)"
+    @info "    IDC (illustrative): $(round(median_idc, digits=1)) ($(round(median_idc/median_total*100, digits=1))%)"
+    @info "    Fixed O&M: $(round(median_fixed_om, digits=1)) ($(round(median_fixed_om/median_total*100, digits=1))%)"
+    @info "    Variable: $(round(median_variable, digits=1)) ($(round(median_variable/median_total*100, digits=1))%)"
+
+    # More vibrant colors - 4 components
+    component_colors = Dict(
+        "OCC" => RGBf(0.0, 0.65, 0.65),                   # Brighter teal
+        "IDC" => RGBf(1.0, 0.55, 0.0),                    # Vibrant orange
+        "Fixed O&M" => RGBf(0.95, 0.85, 0.0),             # Bright yellow
+        "Variable O&M + Fuel" => RGBf(1.0, 0.3, 0.3)      # Vibrant red
+    )
+
+    # Create figure - horizontal layout with legend on right
+    fig = Figure(size=(1200, 600), backgroundcolor=:white)
+
+    # Create main grid layout
+    gl = fig[1, 1] = GridLayout()
+
+    # Create donut chart on left
+    ax = Axis(gl[1, 1], aspect = DataAspect())
     hidedecorations!(ax)
     hidespines!(ax)
 
+    # Four components: OCC, IDC (illustrative decomposition), Fixed O&M, Variable
     values = [median_occ, median_idc, median_fixed_om, median_variable]
     colors_donut = [component_colors["OCC"], component_colors["IDC"],
                     component_colors["Fixed O&M"], component_colors["Variable O&M + Fuel"]]
-    labels = ["OCC", "IDC", "Fixed O&M", "Variable O&M\n+ Fuel"]
 
-    total_val = sum(values)
+    # FIXED: Use median_total (median of totals), not sum(values) (sum of medians)
+    # This ensures donut slices match the percentages shown in legend
     angles = [0.0]
     for v in values
-        push!(angles, angles[end] + 2π * v / total_val)
+        push!(angles, angles[end] + 2π * v / median_total)
     end
 
     # Draw donut segments with borders
@@ -3407,26 +3518,10 @@ function plot_lcoe_donut_standalone(pjs::Vector, scale::String, wacc_range::Vect
         y_poly = vcat(y_outer, y_inner)
 
         # Draw filled polygon with border
-        poly!(ax, Point2f.(x_poly, y_poly), 
-             color=colors_donut[i], 
-             strokewidth=2, 
+        poly!(ax, Point2f.(x_poly, y_poly),
+             color=colors_donut[i],
+             strokewidth=2,
              strokecolor=:white)
-
-        # Add value labels
-        mid_angle = (angles[i] + angles[i+1]) / 2
-        label_radius = 0.775  # Adjust for thicker donut
-        x_label = label_radius * cos(mid_angle)
-        y_label = label_radius * sin(mid_angle)
-
-        pct = round(values[i] / total_val * 100, digits=1)
-        value_rounded = round(values[i], digits=1)
-        
-        text!(ax, x_label, y_label,
-             text="$(labels[i])\n$(value_rounded)\n($(pct)%)",
-             align=(:center, :center), 
-             color=:white, 
-             fontsize=14, 
-             font=:bold)
     end
 
     # Add center text showing total
@@ -3441,36 +3536,629 @@ function plot_lcoe_donut_standalone(pjs::Vector, scale::String, wacc_range::Vect
     xlims!(ax, -1.15, 1.15)
     ylims!(ax, -1.15, 1.15)
 
-    # Title
-    Label(fig[0, 1],
-          "LCOE Component Breakdown: $(scale) Reactors",
-          fontsize=24, 
-          font=:bold,
-          padding=(0, 0, 10, 0))
-
-    # Legend below the chart
+    # Legend on the right side with percentages
     legend_elements = [
         PolyElement(color=component_colors["OCC"], strokewidth=2, strokecolor=:black),
         PolyElement(color=component_colors["IDC"], strokewidth=2, strokecolor=:black),
         PolyElement(color=component_colors["Fixed O&M"], strokewidth=2, strokecolor=:black),
         PolyElement(color=component_colors["Variable O&M + Fuel"], strokewidth=2, strokecolor=:black)
     ]
+
+    # Format labels with percentages
+    pct_occ = round(median_occ / median_total * 100, digits=1)
+    pct_idc = round(median_idc / median_total * 100, digits=1)
+    pct_fixed = round(median_fixed_om / median_total * 100, digits=1)
+    pct_variable = round(median_variable / median_total * 100, digits=1)
+
     legend_labels = [
-        "OCC (Overnight Construction Cost)",
-        "IDC (Interest During Construction)",
-        "Fixed O&M (Operations & Maintenance)",
-        "Variable O&M + Fuel"
+        "OCC: $(round(median_occ, digits=1)) EUR/MWh ($(pct_occ)%)",
+        "IDC: $(round(median_idc, digits=1)) EUR/MWh ($(pct_idc)%)",
+        "Fixed O&M: $(round(median_fixed_om, digits=1)) EUR/MWh ($(pct_fixed)%)",
+        "Variable O&M + Fuel: $(round(median_variable, digits=1)) EUR/MWh ($(pct_variable)%)"
     ]
 
-    Legend(fig[2, 1],
+    Legend(gl[1, 2],
            legend_elements,
            legend_labels,
            orientation=:vertical,
-           tellwidth=false,
-           tellheight=true,
+           tellwidth=true,
+           tellheight=false,
            framevisible=true,
-           nbanks=2,
-           labelsize=14)
+           labelsize=14,
+           padding=(20, 20, 20, 20))
+
+    # Add caption explaining illustrative decomposition
+    Label(fig[2, 1],
+          "Note: OCC and IDC shown as illustrative decomposition using Wealer formula: IDC = OCC × [(r/2)×T + (r²/6)×T²].\nSimulation uses DCF framework where IDC is implicit in present value calculations.",
+          fontsize=10,
+          tellwidth=false,
+          justification=:left)
+
+    return fig
+end
+
+"""
+    shapley_plot_single_scale(shapley_results, scale::String, pjs::Vector)
+
+Create Shapley sensitivity heatmap for a single reactor scale.
+Returns a figure showing only one scale (Micro, SMR, or Large).
+"""
+function shapley_plot_single_scale(shapley_results, scale::String, pjs::Vector)
+
+    # Filter reactors by scale
+    reactors_in_scale = [pj.name for pj in pjs if pj.scale == scale && pj.name in names(shapley_results)]
+
+    if isempty(reactors_in_scale)
+        @warn "No reactors found for scale: $scale"
+        return nothing
+    end
+
+    # Extract variable names and map to display names
+    var_display_names = Dict(
+        "wacc" => "WACC",
+        "construction_time" => "Construction Time",
+        "capacity factor" => "Capacity Factor",
+        "scaling" => "Investment OCC"
+    )
+
+    xticks_raw = shapley_results.var
+    xticks = [get(var_display_names, var, var) for var in xticks_raw]
+
+    # Extract data for this scale
+    data_shapley = Matrix(shapley_results[:, reactors_in_scale])
+    yticks_scale = reactors_in_scale
+
+    # Sizing for readable cells with text values
+    n_reactors = length(reactors_in_scale)
+    n_vars = length(xticks)
+    cell_width = 120  # Wide enough for text
+    cell_height = 40
+    type_bar_width = 1  # Minimal width to eliminate empty space
+
+    fig_width = type_bar_width + (n_vars * cell_width) + 200  # Type bar + heatmap + colorbar
+    fig_height = n_reactors * cell_height + 200
+
+    # Create figure
+    fig = Figure(size = (fig_width, fig_height), backgroundcolor=:white)
+    colormap_shapley = :deep  # Same as original uncertainty report
+
+    # Main grid layout
+    gl = fig[1, 1] = GridLayout()
+
+    # Reactor type indicators
+    type_indicator_colors_map = Dict(
+        "PWR" => RGBf(0.9, 0.5, 0.1),
+        "BWR" => RGBf(0.9, 0.5, 0.1),
+        "HTR" => RGBf(0.9, 0.8, 0.1),
+        "SFR" => RGBf(0.1, 0.7, 0.7),
+        "MSR" => RGBf(0.6, 0.6, 0.6)
+    )
+
+    reactor_types_in_scale = []
+    for reactor_name in reactors_in_scale
+        pj_idx = findfirst(p -> p.name == reactor_name, pjs)
+        if !isnothing(pj_idx)
+            push!(reactor_types_in_scale, pjs[pj_idx].type)
+        else
+            push!(reactor_types_in_scale, "Unknown")
+        end
+    end
+
+    # Shapley heatmap (no separate type column - circles will be on heatmap)
+    ax_shapley = Axis(gl[1, 1],
+                      xticks = (1:length(xticks), xticks),
+                      yticks = (1:length(yticks_scale), yticks_scale),
+                      title = "Shapley Sensitivity Indices",
+                      titlesize = 14,
+                      yaxisposition = :right,
+                      yticklabelsize = 11)
+    ax_shapley.xticklabelrotation = π / 3
+    ax_shapley.xticklabelalign = (:right, :center)
+
+    # Extend x-axis limits to show reactor type indicator circles
+    xlims!(ax_shapley, 0, length(xticks) + 0.5)
+
+    # Draw heatmap
+    hm_shapley = heatmap!(ax_shapley, 1:length(xticks), 1:length(yticks_scale), data_shapley,
+                          colormap = colormap_shapley,
+                          colorrange = (0, 1))
+
+    # Add text annotations showing values
+    for i in 1:n_vars, j in 1:n_reactors
+        val = data_shapley[i, j]
+        text!(ax_shapley, i, j, text = string(round(val, digits=2)),
+              align = (:center, :center),
+              fontsize = 10,
+              color = val > 0.5 ? :white : :black)
+    end
+
+    # Draw reactor type indicators as circles on the left side of heatmap
+    for (i, reactor_type) in enumerate(reactor_types_in_scale)
+        type_color = get(type_indicator_colors_map, reactor_type, RGBf(0.5, 0.5, 0.5))
+        scatter!(ax_shapley, [0.3], [i],
+                color=type_color,
+                strokecolor=:black,
+                strokewidth=1.5,
+                markersize=15)
+    end
+
+    # Colorbar
+    Colorbar(gl[1, 2], hm_shapley, label = "Shapley Value", labelsize = 12)
+
+    # Legend for reactor types (bottom)
+    unique_types = unique(reactor_types_in_scale)
+    legend_elements = [PolyElement(color=type_indicator_colors_map[t], strokewidth=1, strokecolor=:black)
+                       for t in unique_types if haskey(type_indicator_colors_map, t)]
+    legend_labels = unique_types[findall(t -> haskey(type_indicator_colors_map, t), unique_types)]
+
+    Legend(fig[2, 1], legend_elements, legend_labels,
+           "Reactor Type",
+           orientation = :horizontal,
+           framevisible = false,
+           tellwidth = false,
+           tellheight = true)
+
+    return fig
+end
+
+"""
+    si_plot_single_scale(si_results, scale::String, pjs::Vector)
+
+Create Sobol sensitivity heatmap for a single reactor scale.
+Returns a figure showing only one scale (Micro, SMR, or Large).
+"""
+function si_plot_single_scale(si_results, scale::String, pjs::Vector)
+
+    # Filter reactors by scale
+    reactors_in_scale = [pj.name for pj in pjs if pj.scale == scale && pj.name in names(si_results)]
+
+    if isempty(reactors_in_scale)
+        @warn "No reactors found for scale: $scale"
+        return nothing
+    end
+
+    # Extract variable names
+    var_display_names = Dict(
+        "wacc" => "WACC",
+        "construction_time" => "Construction Time",
+        "capacity factor" => "Capacity Factor",
+        "scaling" => "Investment OCC"
+    )
+
+    xticks_raw = unique(si_results.var)
+    xticks = [get(var_display_names, var, var) for var in xticks_raw]
+
+    # Extract data for this scale
+    si_s = filter(:si => index -> index == "S", si_results)
+    si_st = filter(:si => index -> index == "ST", si_results)
+
+    data_s = Matrix(si_s[:, reactors_in_scale])
+    data_st = Matrix(si_st[:, reactors_in_scale])
+
+    yticks_scale = reactors_in_scale
+
+    # Sizing: side-by-side layout needs width for two heatmaps + colorbar + legend
+    n_reactors = length(reactors_in_scale)
+    n_vars = length(xticks)
+    cell_width = 120  # Wider cells to show text values
+    cell_height = 40   # Adequate height for reactor names
+    type_bar_width = 1  # Minimal width to eliminate empty space
+
+    fig_width = type_bar_width + 2 * (n_vars * cell_width) + 250  # Two heatmaps + colorbar + margins
+    fig_height = n_reactors * cell_height + 200  # Reactor rows + title + legend
+
+    # Create figure with side-by-side layout
+    fig = Figure(size = (fig_width, fig_height), backgroundcolor=:white)
+    colormap_si = :deep  # Same as original uncertainty report
+
+    # Main grid layout
+    gl = fig[1, 1] = GridLayout()
+
+    # Reactor type indicators (shared on left)
+    type_indicator_colors_map = Dict(
+        "PWR" => RGBf(0.9, 0.5, 0.1),
+        "BWR" => RGBf(0.9, 0.5, 0.1),
+        "HTR" => RGBf(0.9, 0.8, 0.1),
+        "SFR" => RGBf(0.1, 0.7, 0.7),
+        "MSR" => RGBf(0.6, 0.6, 0.6)
+    )
+
+    reactor_types_in_scale = []
+    for reactor_name in reactors_in_scale
+        pj_idx = findfirst(p -> p.name == reactor_name, pjs)
+        if !isnothing(pj_idx)
+            push!(reactor_types_in_scale, pjs[pj_idx].type)
+        else
+            push!(reactor_types_in_scale, "Unknown")
+        end
+    end
+
+    # First-order indices (S) - column 1
+    ax_s = Axis(gl[1, 1],
+                xticks = (1:length(xticks), xticks),
+                yticks = (1:length(yticks_scale), fill("", n_reactors)),  # Empty labels (shown on left)
+                title = "First-order Effect",
+                titlesize = 14)
+    ax_s.xticklabelrotation = π / 3
+    ax_s.xticklabelalign = (:right, :center)
+    ax_s.yticklabelsvisible = false
+
+    # Extend x-axis limits to show reactor type indicator circles
+    xlims!(ax_s, 0, length(xticks) + 0.5)
+
+    # Draw S heatmap
+    hm_s = heatmap!(ax_s, 1:length(xticks), 1:length(yticks_scale), data_s,
+                    colormap = colormap_si, colorrange = (0, 1))
+
+    # Add text annotations showing values
+    for i in 1:n_vars, j in 1:n_reactors
+        val = data_s[i, j]
+        text!(ax_s, i, j, text = string(round(val, digits=2)),
+              align = (:center, :center),
+              fontsize = 10,
+              color = val > 0.5 ? :white : :black)
+    end
+
+    # Draw reactor type indicators as circles on the left side of S heatmap
+    for (i, reactor_type) in enumerate(reactor_types_in_scale)
+        type_color = get(type_indicator_colors_map, reactor_type, RGBf(0.5, 0.5, 0.5))
+        scatter!(ax_s, [0.3], [i],
+                color=type_color,
+                strokecolor=:black,
+                strokewidth=1.5,
+                markersize=15)
+    end
+
+    # Total-order indices (ST) - column 2
+    ax_st = Axis(gl[1, 2],
+                 xticks = (1:length(xticks), xticks),
+                 yticks = (1:length(yticks_scale), yticks_scale),  # Show labels on right
+                 title = "Total-order Effect",
+                 titlesize = 14,
+                 yaxisposition = :right)
+    ax_st.xticklabelrotation = π / 3
+    ax_st.xticklabelalign = (:right, :center)
+    ax_st.yticklabelsize = 11
+
+    # Draw ST heatmap
+    hm_st = heatmap!(ax_st, 1:length(xticks), 1:length(yticks_scale), data_st,
+                     colormap = colormap_si, colorrange = (0, 1))
+
+    # Add text annotations showing values
+    for i in 1:n_vars, j in 1:n_reactors
+        val = data_st[i, j]
+        text!(ax_st, i, j, text = string(round(val, digits=2)),
+              align = (:center, :center),
+              fontsize = 10,
+              color = val > 0.5 ? :white : :black)
+    end
+
+    # Shared colorbar
+    Colorbar(gl[1, 3], hm_s, label = "Sensitivity Index", labelsize = 12)
+
+    # Legend for reactor types (bottom)
+    unique_types = unique(reactor_types_in_scale)
+    legend_elements = [PolyElement(color=type_indicator_colors_map[t], strokewidth=1, strokecolor=:black)
+                       for t in unique_types if haskey(type_indicator_colors_map, t)]
+    legend_labels = unique_types[findall(t -> haskey(type_indicator_colors_map, t), unique_types)]
+
+    Legend(fig[2, 1], legend_elements, legend_labels,
+           "Reactor Type",
+           orientation = :horizontal,
+           framevisible = false,
+           tellwidth = false,
+           tellheight = true)
+
+    return fig
+end
+"""
+    create_idc_sensitivity_table(scale_pjs, wacc_values, construction_times, opt_scaling)
+
+Create a sensitivity table showing IDC component of LCOE as a function of construction time
+and WACC, using a fixed median OCC value. Similar to Table 8.1 from NEA reference paper.
+
+# Arguments
+- `scale_pjs::Vector{project}`: Reactors of a specific scale (e.g., all SMRs)
+- `wacc_values::Vector{Float64}`: WACC rates to test (e.g., [0.04, 0.07, 0.10])
+- `construction_times::Vector{Int}`: Construction time scenarios (e.g., [3, 5, 7])
+- `opt_scaling::String`: Scaling method for OCC calculation
+
+# Returns
+- DataFrame with IDC values (EUR/MWh) organized by construction time (rows) and WACC (columns)
+- Figure with formatted table visualization
+"""
+function create_idc_sensitivity_table(scale_pjs::Vector,
+                                     wacc_values::Vector{Float64},
+                                     construction_times::Vector{Int},
+                                     opt_scaling::String)
+
+    scale_name = scale_pjs[1].scale
+    n_reactors = length(scale_pjs)
+
+    @info "Creating IDC sensitivity table for $(scale_name) reactors (n=$(n_reactors))"
+    @info "  Construction times: $(construction_times) years"
+    @info "  WACC values: $(wacc_values .* 100)%"
+
+    # Calculate median OCC across all reactors (using manufacturer values with scaling)
+    occ_values = Float64[]
+    capacity_values = Float64[]
+    loadfactor_values = Float64[]
+
+    for pj in scale_pjs
+        # Apply scaling to get median OCC
+        scaling_factor = mean([0.4, 0.7])  # Use midpoint of scaling range
+        scaled_investment = pj.investment * scaling_factor
+        occ = scaled_investment * pj.plant_capacity  # EUR
+        push!(occ_values, occ)
+        push!(capacity_values, pj.plant_capacity)
+        push!(loadfactor_values, mean(pj.loadfactor))
+    end
+
+    # Use median OCC for all calculations
+    median_occ = median(occ_values)
+    median_capacity = median(capacity_values)
+    median_loadfactor = median(loadfactor_values)
+    median_lifetime = scale_pjs[1].time[2]  # Operating years (should be same for all)
+
+    @info "  Using median OCC: $(round(median_occ/1e6, digits=1)) M EUR"
+    @info "  Median capacity: $(round(median_capacity, digits=0)) MWe"
+    @info "  Median load factor: $(round(median_loadfactor*100, digits=1))%"
+
+    # Annual generation [MWh/year]
+    annual_generation = median_capacity * median_loadfactor * 8760
+
+    # Initialize results DataFrame
+    results = DataFrame(
+        construction_time = Int[],
+        wacc_4pct = Float64[],
+        wacc_7pct = Float64[],
+        wacc_10pct = Float64[]
+    )
+
+    # Calculate IDC for each combination
+    for t_con in construction_times
+        idc_by_wacc = Float64[]
+
+        for wacc in wacc_values
+            # Calculate IDC using explicit formula
+            # IDC = OCC × [(r/2)×T_con + (r²/6)×T_con²]
+            idc_factor = (wacc/2) * t_con + (wacc^2/6) * t_con^2
+            idc_total = median_occ * idc_factor  # EUR
+
+            # Calculate capital recovery factor
+            crf = wacc * (1 + wacc)^median_lifetime / ((1 + wacc)^median_lifetime - 1)
+
+            # Convert IDC to LCOE component [EUR/MWh]
+            idc_lcoe = (idc_total * crf) / annual_generation
+
+            push!(idc_by_wacc, idc_lcoe)
+
+            @info "    t=$(t_con)yr, WACC=$(round(wacc*100, digits=0))%: IDC = $(round(idc_lcoe, digits=1)) EUR/MWh"
+        end
+
+        # Store results (assuming wacc_values = [0.04, 0.07, 0.10])
+        push!(results, (t_con, idc_by_wacc[1], idc_by_wacc[2], idc_by_wacc[3]))
+    end
+
+    # Create formatted table visualization
+    fig = Figure(resolution = (800, 500))
+
+    # Add title
+    Label(fig[1, 1],
+          "IDC Component of LCOE - $(scale_name) Reactors",
+          fontsize = 16, font = :bold, tellwidth = false)
+
+    # Subtitle with key parameters
+    Label(fig[2, 1],
+          "Fixed OCC = $(round(median_occ/1e6, digits=1)) M EUR | Capacity = $(round(median_capacity, digits=0)) MWe | Load Factor = $(round(median_loadfactor*100, digits=1))%",
+          fontsize = 11, tellwidth = false)
+
+    # Create axis for table
+    ax = Axis(fig[3, 1],
+              xlabel = "",
+              ylabel = "",
+              aspect = DataAspect())
+
+    hidedecorations!(ax)
+    hidespines!(ax)
+
+    # Table dimensions
+    n_rows = length(construction_times) + 2  # +2 for header rows
+    n_cols = 4  # Construction time + 3 WACC columns
+
+    # Draw table grid (bold outer border)
+    for i in 0:n_rows
+        lw = (i == 0 || i == n_rows || i == 2) ? 2 : 1
+        lines!(ax, [0, n_cols], [i, i], color = :black, linewidth = lw)
+    end
+    for j in 0:n_cols
+        lw = (j == 0 || j == n_cols) ? 2 : 1
+        lines!(ax, [j, j], [0, n_rows], color = :black, linewidth = lw)
+    end
+
+    # Add header - row 1 (main title)
+    text!(ax, 2.0, n_rows - 0.5,
+          text = "IDC Component of LCOE (EUR/MWh)",
+          align = (:center, :center),
+          fontsize = 12,
+          font = :bold)
+
+    # Add header - row 2 (column labels with shading)
+    poly!(ax, [Point2f(0, n_rows-2), Point2f(n_cols, n_rows-2),
+               Point2f(n_cols, n_rows-1), Point2f(0, n_rows-1)],
+          color = RGBf(0.9, 0.9, 0.9))
+
+    headers = ["Construction\nTime (years)", "WACC = 4%", "WACC = 7%", "WACC = 10%"]
+    for (j, header) in enumerate(headers)
+        text!(ax, j - 0.5, n_rows - 1.5,
+              text = header,
+              align = (:center, :center),
+              fontsize = 11,
+              font = :bold)
+    end
+
+    # Add data rows with alternating shading
+    for (i, row) in enumerate(eachrow(results))
+        row_idx = n_rows - i - 1
+
+        # Alternating row shading
+        if i % 2 == 0
+            poly!(ax, [Point2f(0, row_idx-1), Point2f(n_cols, row_idx-1),
+                       Point2f(n_cols, row_idx), Point2f(0, row_idx)],
+                  color = RGBf(0.95, 0.95, 0.95))
+        end
+
+        # Construction time (bold)
+        text!(ax, 0.5, row_idx - 0.5,
+              text = string(row.construction_time),
+              align = (:center, :center),
+              fontsize = 11,
+              font = :bold)
+
+        # IDC LCOE values
+        text!(ax, 1.5, row_idx - 0.5,
+              text = string(round(row.wacc_4pct, digits=1)),
+              align = (:center, :center),
+              fontsize = 11)
+
+        text!(ax, 2.5, row_idx - 0.5,
+              text = string(round(row.wacc_7pct, digits=1)),
+              align = (:center, :center),
+              fontsize = 11)
+
+        text!(ax, 3.5, row_idx - 0.5,
+              text = string(round(row.wacc_10pct, digits=1)),
+              align = (:center, :center),
+              fontsize = 11)
+    end
+
+    # Add note
+    Label(fig[4, 1],
+          "Note: Values show the Interest During Construction (IDC) component of LCOE using median OCC from $(n_reactors) $(scale_name) reactors.\nIDC calculated using formula: IDC = OCC × [(r/2)×T + (r²/6)×T²], where r=WACC and T=construction time.\nLifetime = $(median_lifetime) years. Scaling method: $(opt_scaling).",
+          fontsize = 9,
+          tellwidth = false,
+          justification = :left)
+
+    xlims!(ax, 0, n_cols)
+    ylims!(ax, 0, n_rows)
+
+    return results, fig
+end
+
+"""
+    plot_wacc_sensitivity_with_ci(pjs, wacc_range, opt_scaling, electricity_price_mean, construction_time_ranges)
+
+Create WACC sensitivity plot showing median LCOE with confidence intervals,
+similar to Figure 5.1 from NEA reference paper.
+
+# Arguments
+- `pjs::Vector{project}`: Reactor projects to analyze
+- `wacc_range::Vector{Float64}`: Range of WACC values (e.g., 0.03:0.01:0.15)
+- `opt_scaling::String`: Scaling method
+- `electricity_price_mean::Float64`: Mean electricity price
+- `construction_time_ranges::Dict`: Construction time ranges by scale
+
+# Returns
+- Figure with median LCOE lines and confidence interval bands for each reactor
+"""
+function plot_wacc_sensitivity_with_ci(pjs::Vector,
+                                       wacc_range::AbstractVector{Float64},
+                                       opt_scaling::String,
+                                       electricity_price_mean::Float64,
+                                       construction_time_ranges::Dict)
+
+    @info "Creating WACC sensitivity plot with confidence intervals"
+    @info "  WACC range: $(round(minimum(wacc_range)*100, digits=0))% - $(round(maximum(wacc_range)*100, digits=0))%"
+    @info "  Reactors: $(length(pjs))"
+
+    # Number of simulations per WACC value
+    n = 10000
+
+    # Store results for each reactor
+    results_by_reactor = Dict{String, Dict{String, Vector{Float64}}}()
+
+    # Run simulations for each reactor at each WACC value
+    for pj in pjs
+        @info "  Analyzing $(pj.name)..."
+
+        median_lcoe = Float64[]
+        p10_lcoe = Float64[]
+        p90_lcoe = Float64[]
+
+        for wacc in wacc_range
+            # Generate random variables with small epsilon to avoid triangular dist errors
+            # When min==max, add small range around the value
+            epsilon = 0.001
+            wacc_min = max(0.01, wacc - epsilon)
+            wacc_max = min(0.20, wacc + epsilon)
+
+            rand_vars = gen_rand_vars(opt_scaling, n, [wacc_min, wacc_max], electricity_price_mean, pj;
+                                     construction_time_range=construction_time_ranges[pj.scale])
+
+            # Run Monte Carlo simulation
+            disc_res = mc_run(n, pj, rand_vars)
+
+            # Calculate LCOE
+            res = npv_lcoe(disc_res, decompose=false)
+
+            # Calculate statistics
+            push!(median_lcoe, median(res.lcoe))
+            push!(p10_lcoe, quantile(res.lcoe, 0.10))
+            push!(p90_lcoe, quantile(res.lcoe, 0.90))
+        end
+
+        results_by_reactor[pj.name] = Dict(
+            "median" => median_lcoe,
+            "p10" => p10_lcoe,
+            "p90" => p90_lcoe
+        )
+    end
+
+    # Create figure
+    fig = Figure(resolution = (1000, 600))
+
+    ax = Axis(fig[1, 1],
+              xlabel = "Discount Rate (WACC)",
+              ylabel = "LCOE (EUR/MWh)",
+              title = "LCOE Sensitivity to Discount Rate with Confidence Intervals",
+              titlesize = 14)
+
+    # Color scheme by reactor type
+    type_colors = Dict(
+        "LWR" => RGBf(0.2, 0.4, 0.8),
+        "SFR" => RGBf(0.8, 0.3, 0.3),
+        "MSR" => RGBf(0.3, 0.7, 0.3),
+        "HTGR" => RGBf(0.9, 0.6, 0.2),
+        "micro" => RGBf(0.6, 0.4, 0.8)
+    )
+
+    wacc_pct = wacc_range .* 100  # Convert to percentage for x-axis
+
+    # Plot each reactor
+    for pj in pjs
+        color = get(type_colors, pj.type, RGBf(0.5, 0.5, 0.5))
+
+        median_vals = results_by_reactor[pj.name]["median"]
+        p10_vals = results_by_reactor[pj.name]["p10"]
+        p90_vals = results_by_reactor[pj.name]["p90"]
+
+        # Plot confidence band (10th-90th percentile)
+        band!(ax, wacc_pct, p10_vals, p90_vals,
+              color = (color, 0.2),
+              label = nothing)
+
+        # Plot median line
+        lines!(ax, wacc_pct, median_vals,
+               color = color,
+               linewidth = 2,
+               label = pj.name)
+    end
+
+    # Add legend
+    Legend(fig[1, 2], ax, "Reactor", framevisible = true)
+
+    # Format x-axis as percentage
+    ax.xticks = (0:5:20, ["$(i)%" for i in 0:5:20])
 
     return fig
 end

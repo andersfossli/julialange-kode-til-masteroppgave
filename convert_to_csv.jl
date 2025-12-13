@@ -94,7 +94,7 @@ Reference reactors (EUR2025):
 - Clinton-1 (BWR):     950 MWe,  9,735,049 EUR/MW
 - Vogtle-3 (PWR):    1,117 MWe,  8,603,440 EUR/MW
 - Fort St. Vrain (HTR): 330 MWe, 7,200,629 EUR/MW
-- Superphénix (SFR): 1,200 MWe, 5,484,047 EUR/MW
+- Superphénix (SFR): 1,200 MWe, 7,002,491 EUR/MW
 """
 function get_reference_values(reactor_type)
     if reactor_type == "PWR"
@@ -104,11 +104,11 @@ function get_reference_values(reactor_type)
     elseif reactor_type == "HTR"
         return (investment=7200629, capacity=330)   # Fort St. Vrain
     elseif reactor_type == "SFR"
-        return (investment=5484047, capacity=1200)  # Superphénix
+        return (investment=7002491, capacity=1200)  # Superphénix
     elseif reactor_type == "MSR"
         return (investment=8603440, capacity=1000)  # Default: Vogtle-3 reference
     elseif reactor_type == "LFR"
-        return (investment=5484047, capacity=1250)  # Default: Superphénix reference
+        return (investment=7002491, capacity=1250)  # Default: Superphénix reference
     else
         return (investment=8603440, capacity=1000)  # Default: Vogtle-3 reference
     end

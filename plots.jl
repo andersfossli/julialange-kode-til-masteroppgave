@@ -182,17 +182,19 @@ save("$outputpath/fig-mcs_lcoe-$opt_scaling.pdf", fig_mcs_lcoe);
 # Note: si_plot() was replaced by si_plot_by_scale() below for better organization
 
 if !isnothing(si_npv_results) && !isnothing(si_lcoe_results)
-    @info("Generating sensitivity index plots")
-    # New: Grouped by scale (Micro/SMR/Large)
+    @info("Generating sensitivity index plots (separate figure per scale)")
     # Use Base.invokelatest to avoid Julia 1.12 world age issues
 
     # NPV sensitivity plots disabled - not needed for thesis
-    # fig_si_npv_by_scale = Base.invokelatest(si_plot_by_scale, si_npv_results, "NPV Sensitivity Indices", pjs)
-    # save("$outputpath/fig-si_npv_by_scale-$opt_scaling.pdf", fig_si_npv_by_scale);
 
-    fig_si_lcoe_by_scale = Base.invokelatest(si_plot_by_scale, si_lcoe_results, "LCOE Sensitivity Indices", pjs)
-    save("$outputpath/fig-si_lcoe_by_scale-$opt_scaling.pdf", fig_si_lcoe_by_scale);
-    @info("✓ Sensitivity index plots saved")
+    # Generate separate Sobol plots for each scale
+    for scale in ["Micro", "SMR", "Large"]
+        fig_si = Base.invokelatest(si_plot_single_scale, si_lcoe_results, scale, pjs)
+        if !isnothing(fig_si)
+            save("$outputpath/fig-si_lcoe_$(lowercase(scale))-$opt_scaling.pdf", fig_si)
+            @info("✓ Saved: fig-si_lcoe_$(lowercase(scale))-$opt_scaling.pdf")
+        end
+    end
 else
     @warn("Skipping sensitivity index plots (data not available)")
 end
@@ -404,6 +406,52 @@ fig_wacc_sensitivity = Base.invokelatest(
 
 save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
 @info("WACC sensitivity plot saved (0 new simulations, used existing data)")
+
+##### WACC sensitivity with confidence intervals #####
+# DISABLED: This requires running new simulations at specific WACC values, but gen_rand_vars
+# has a hardcoded mode=0.07 which causes triangular distribution errors when WACC ≠ 0.07
+# To enable this, the underlying gen_rand_vars function needs to be modified to accept
+# a wacc_mode parameter or use a different distribution strategy.
+
+# @info("Generating WACC sensitivity plot with confidence intervals")
+# construction_time_ranges = Dict(
+#     "Micro" => [3, 8],
+#     "SMR"   => [3, 7],
+#     "Large" => [5, 13]
+# )
+# wacc_range_ci = 0.04:0.01:0.10
+# smr_pjs_ci = filter(p -> p.scale == "SMR", pjs)
+# if !isempty(smr_pjs_ci)
+#     fig_wacc_ci = plot_wacc_sensitivity_with_ci(
+#         smr_pjs_ci, wacc_range_ci, opt_scaling, electricity_price_mean, construction_time_ranges
+#     )
+#     save("$outputpath/fig-wacc_sensitivity_ci-$opt_scaling.pdf", fig_wacc_ci)
+#     @info("✓ Saved: fig-wacc_sensitivity_ci-$opt_scaling.pdf")
+# end
+
+##### IDC Sensitivity Table #####
+# Shows IDC component of LCOE as function of construction time and WACC
+
+@info("Generating IDC sensitivity table")
+
+# FIXED: Generate table for BWRX-300 only to match standalone donut and aggregate breakdown
+smr_pjs_table = filter(p -> p.name == "BWRX-300", pjs)
+if !isempty(smr_pjs_table)
+    wacc_values_table = [0.04, 0.07, 0.10]
+    construction_times_table = [3, 5, 7]
+
+    results_idc, fig_idc = create_idc_sensitivity_table(
+        smr_pjs_table,
+        wacc_values_table,
+        construction_times_table,
+        opt_scaling
+    )
+
+    save("$outputpath/fig-idc_table-$opt_scaling.pdf", fig_idc)
+    CSV.write("$outputpath/idc_table-$opt_scaling.csv", results_idc)
+    @info("✓ Saved: fig-idc_table-$opt_scaling.pdf")
+    @info("✓ Saved: idc_table-$opt_scaling.csv")
+end
 
 ##### OCC vs Year plot (Large reactors only) #####
 # Shows Western vs Asian reactors with linear trend lines
@@ -680,12 +728,18 @@ fig_lcoe_horizontal = lcoe_comparison_horizontal(lcoe_results, pjs, opt_scaling)
 save("$outputpath/fig-lcoe_comparison_horizontal-$opt_scaling.pdf", fig_lcoe_horizontal)
 @info("✓ Saved: fig-lcoe_comparison_horizontal-$opt_scaling.pdf")
 
-# PLOT 2: Shapley Sensitivity Heatmap (matching Sobol style)
+# PLOT 2: Shapley Sensitivity Heatmap (separate figure per scale)
 if !isnothing(shapley_npv_results) && !isnothing(shapley_lcoe_results)
-    @info("Generating Shapley sensitivity heatmap (matching Sobol style)...")
-    fig_shapley_heatmap = shapley_plot_by_scale(shapley_lcoe_results, "Shapley Sensitivity Indices (LCOE)", pjs)
-    save("$outputpath/fig-shapley_heatmap_threepanel-$opt_scaling.pdf", fig_shapley_heatmap)
-    @info("✓ Saved: fig-shapley_heatmap_threepanel-$opt_scaling.pdf")
+    @info("Generating Shapley sensitivity heatmaps (separate figure per scale)...")
+
+    # Generate separate Shapley plots for each scale
+    for scale in ["Micro", "SMR", "Large"]
+        fig_shapley = shapley_plot_single_scale(shapley_lcoe_results, scale, pjs)
+        if !isnothing(fig_shapley)
+            save("$outputpath/fig-shapley_$(lowercase(scale))-$opt_scaling.pdf", fig_shapley)
+            @info("✓ Saved: fig-shapley_$(lowercase(scale))-$opt_scaling.pdf")
+        end
+    end
 else
     @warn("Skipping Shapley heatmap (Shapley results not available)")
 end
