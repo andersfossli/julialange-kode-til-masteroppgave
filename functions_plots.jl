@@ -1522,9 +1522,12 @@ Arguments:
 Returns:
 - Figure with WACC (%) vs median LCOE (EUR2025/MWh) for Micro, SMR, and Large reactors
 """
-function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_centers)
+function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_centers; show_ci::Bool=false)
 
     @info("Generating WACC sensitivity plot from existing results (0 new simulations)")
+    if show_ci
+        @info("  Including 10th-90th percentile confidence intervals")
+    end
 
     # Read saved results
     lcoe_results = CSV.read("$outputpath/mcs-lcoe_results-$opt_scaling.csv", DataFrame)
@@ -1535,6 +1538,14 @@ function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_center
     micro_median_lcoe = Float64[]
     smr_median_lcoe = Float64[]
     large_median_lcoe = Float64[]
+
+    # NEW: Storage for confidence intervals
+    micro_p10_lcoe = Float64[]
+    micro_p90_lcoe = Float64[]
+    smr_p10_lcoe = Float64[]
+    smr_p90_lcoe = Float64[]
+    large_p10_lcoe = Float64[]
+    large_p90_lcoe = Float64[]
 
     # For each WACC bin center
     for wacc_pct in wacc_bin_centers
@@ -1578,6 +1589,14 @@ function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_center
         push!(smr_median_lcoe, isempty(smr_lcoe_bin) ? NaN : median(smr_lcoe_bin))
         push!(large_median_lcoe, isempty(large_lcoe_bin) ? NaN : median(large_lcoe_bin))
 
+        # NEW: Calculate confidence intervals
+        push!(micro_p10_lcoe, isempty(micro_lcoe_bin) ? NaN : quantile(micro_lcoe_bin, 0.10))
+        push!(micro_p90_lcoe, isempty(micro_lcoe_bin) ? NaN : quantile(micro_lcoe_bin, 0.90))
+        push!(smr_p10_lcoe, isempty(smr_lcoe_bin) ? NaN : quantile(smr_lcoe_bin, 0.10))
+        push!(smr_p90_lcoe, isempty(smr_lcoe_bin) ? NaN : quantile(smr_lcoe_bin, 0.90))
+        push!(large_p10_lcoe, isempty(large_lcoe_bin) ? NaN : quantile(large_lcoe_bin, 0.10))
+        push!(large_p90_lcoe, isempty(large_lcoe_bin) ? NaN : quantile(large_lcoe_bin, 0.90))
+
         @info("    Bin counts: Micro=$(length(micro_lcoe_bin)), SMR=$(length(smr_lcoe_bin)), Large=$(length(large_lcoe_bin))")
     end
 
@@ -1594,6 +1613,16 @@ function wacc_sensitivity_plot(outputpath, opt_scaling, pjs_dat, wacc_bin_center
         "SMR" => RGBf(0.8, 0.4, 0.0),      # Orange
         "Large" => RGBf(0.0, 0.6, 0.4)     # Teal/Green
     )
+
+    # NEW: Plot confidence bands first (if requested)
+    if show_ci
+        band!(ax, wacc_percentages, large_p10_lcoe, large_p90_lcoe,
+              color = (scale_colors["Large"], 0.2))
+        band!(ax, wacc_percentages, smr_p10_lcoe, smr_p90_lcoe,
+              color = (scale_colors["SMR"], 0.2))
+        band!(ax, wacc_percentages, micro_p10_lcoe, micro_p90_lcoe,
+              color = (scale_colors["Micro"], 0.2))
+    end
 
     # Plot lines for each scale with thicker lines
     lines!(ax, wacc_percentages, micro_median_lcoe,
@@ -2445,20 +2474,23 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
         end
     end
 
-    # Load vendor target LCOE (manufacturer-based baseline)
-    vendor_file = "$outputpath/mcs-lcoe_summary-manufacturer-baseline.csv"
+    # DISABLED: Vendor target LCOE feature (not used with new learning curve functions)
+    # The new learning_curve_single_reactor() and learning_curves_grid_appendix()
+    # calculate vendor baseline on-the-fly using calculate_vendor_baseline_lcoe_simple()
     vendor_target_lcoe = Dict{String, Float64}()
 
-    if isfile(vendor_file)
-        vendor_data = CSV.read(vendor_file, DataFrame)
-        if "variable" in names(vendor_data) && "median" in names(vendor_data)
-            for row in eachrow(vendor_data)
-                vendor_target_lcoe[row.variable] = row.median
-            end
-        end
-    else
-        @warn "Vendor target file not found: $vendor_file"
-    end
+    # # Load vendor target LCOE (manufacturer-based baseline)
+    # vendor_file = "$outputpath/mcs-lcoe_summary-manufacturer-baseline.csv"
+    # if isfile(vendor_file)
+    #     vendor_data = CSV.read(vendor_file, DataFrame)
+    #     if "variable" in names(vendor_data) && "median" in names(vendor_data)
+    #         for row in eachrow(vendor_data)
+    #             vendor_target_lcoe[row.variable] = row.median
+    #         end
+    #     end
+    # else
+    #     @warn "Vendor target file not found: $vendor_file"
+    # end
 
     for (idx, pj) in enumerate(all_reactors)
         row = div(idx - 1, n_cols) + 1
@@ -4161,4 +4193,455 @@ function plot_wacc_sensitivity_with_ci(pjs::Vector,
     ax.xticks = (0:5:20, ["$(i)%" for i in 0:5:20])
 
     return fig
+end
+
+"""
+    calculate_vendor_baseline_lcoe_simple(pj, wacc_mean, construction_time_mean)
+
+Calculate vendor's claimed LCOE using their stated OCC and typical operating parameters.
+This represents the LCOE at the manufacturer's claimed costs (N=1, no learning applied).
+
+# Arguments
+- `pj::project`: Project object with reactor specifications
+- `wacc_mean::Float64`: Mean discount rate
+- `construction_time_mean::Int`: Mean construction time in years
+
+# Returns
+- `vendor_baseline_lcoe::Float64`: LCOE at manufacturer's claimed costs
+"""
+function calculate_vendor_baseline_lcoe_simple(pj::project, wacc_mean::Float64,
+                                               construction_time_mean::Int)
+    # Use manufacturer OCC (no learning factor applied)
+    occ = pj.investment * pj.plant_capacity  # EUR
+
+    # Operating parameters
+    loadfactor = mean(pj.loadfactor)
+    annual_generation = pj.plant_capacity * loadfactor * 8760  # MWh/year
+    lifetime = pj.time[2]
+
+    # Capital Recovery Factor
+    crf = wacc_mean * (1 + wacc_mean)^lifetime / ((1 + wacc_mean)^lifetime - 1)
+
+    # LCOE components
+    # Capital (including IDC using explicit formula for vendor baseline)
+    idc_factor = (wacc_mean/2) * construction_time_mean +
+                 (wacc_mean^2/6) * construction_time_mean^2
+    tcc = occ * (1 + idc_factor)
+    lcoe_capital = (tcc * crf) / annual_generation
+
+    # O&M
+    fixed_om_annual = pj.plant_capacity * pj.operating_cost[1]
+    variable_om_fuel = pj.operating_cost[2] + pj.operating_cost[3]
+
+    lcoe_fixed_om = fixed_om_annual / annual_generation
+    lcoe_variable = variable_om_fuel
+
+    # Total
+    vendor_baseline_lcoe = lcoe_capital + lcoe_fixed_om + lcoe_variable
+
+    return vendor_baseline_lcoe
+end
+
+"""
+    learning_curve_single_reactor(pj, wacc_range, electricity_price_mean, opt_scaling; kwargs...)
+
+Create learning curve plot for a single reactor with vendor baseline.
+
+# Arguments
+- `pj::project`: Project object for reactor
+- `wacc_range::Vector`: WACC range [min, max]
+- `electricity_price_mean::Float64`: Mean electricity price
+- `opt_scaling::String`: Scaling method identifier
+- `N_max::Int=30`: Maximum number of cumulative units
+- `learning_rates::Vector{Float64}=[0.05, 0.10, 0.15]`: Learning rates to plot
+- `construction_time_range::Union{Nothing,Vector}=nothing`: Construction time range
+
+# Returns
+- `fig`: Figure with learning curves
+- `vendor_baseline::Float64`: Vendor baseline LCOE
+- `crossing_idx::Union{Int, Nothing}`: Index where base case crosses vendor baseline
+"""
+function learning_curve_single_reactor(pj::project, wacc_range::Vector,
+                                      electricity_price_mean::Float64,
+                                      opt_scaling::String;
+                                      N_max::Int=30,
+                                      learning_rates::Vector{Float64}=[0.05, 0.10, 0.15],
+                                      construction_time_range::Union{Nothing,Vector}=nothing)
+
+    @info "Creating learning curve for $(pj.name)"
+
+    n_sim = 10000  # MC samples per learning scenario
+    N_values = 1:N_max
+
+    # Calculate vendor baseline (N=1, manufacturer OCC)
+    wacc_mean = mean(wacc_range)
+    ct_mean = isnothing(construction_time_range) ? pj.time[1] : mean(construction_time_range)
+    vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, wacc_mean, ct_mean)
+
+    @info "  Vendor baseline LCOE: $(round(vendor_baseline, digits=1)) EUR/MWh"
+
+    # Determine learning type based on scale
+    learning_type = pj.scale == "Large" ? "deployment" : "factory"
+
+    # Store results for each learning rate
+    results = Dict{Float64, Vector{Float64}}()
+
+    for LR in learning_rates
+        lcoe_trajectory = Float64[]
+
+        for N in N_values
+            # Generate random variables with learning
+            rand_vars = gen_rand_vars(opt_scaling, n_sim, wacc_range, electricity_price_mean, pj;
+                                     apply_learning=true,
+                                     N_unit=N,
+                                     LR=LR,
+                                     kappa=1.0,
+                                     apply_soak_discount=false,
+                                     construction_time_range=construction_time_range,
+                                     quiet=true)
+
+            disc_res = mc_run(n_sim, pj, rand_vars)
+            res = npv_lcoe(disc_res, decompose=false)
+
+            push!(lcoe_trajectory, median(res.lcoe))
+        end
+
+        results[LR] = lcoe_trajectory
+    end
+
+    # Create plot
+    fig = Figure(size=(600, 500))
+
+    ax = Axis(fig[1, 1],
+              xlabel = "Cumulative Units (N)",
+              ylabel = "LCOE [EUR2025/MWh]",
+              title = pj.name,
+              titlesize = 16,
+              titlefont = :bold)
+
+    # Color scheme
+    lr_colors = Dict(
+        0.05 => RGBf(0.7, 0.7, 0.7),     # Light gray
+        0.10 => RGBf(0.2, 0.4, 0.8),     # Blue (base case)
+        0.15 => RGBf(0.3, 0.7, 0.3)      # Green
+    )
+
+    lr_styles = Dict(
+        0.05 => :dash,
+        0.10 => :solid,
+        0.15 => :dot
+    )
+
+    # Plot learning curves
+    for LR in learning_rates
+        lines!(ax, N_values, results[LR],
+               color = lr_colors[LR],
+               linestyle = lr_styles[LR],
+               linewidth = 2.5,
+               label = "LR $(Int(LR*100))%$(LR == 0.10 ? " (Base)" : "")")
+    end
+
+    # Add vendor baseline as horizontal line
+    hlines!(ax, [vendor_baseline],
+            color = :red,
+            linestyle = :dashdot,
+            linewidth = 2.5,
+            label = "Vendor Baseline")
+
+    # Find crossing points with vendor baseline for base case (LR=10%)
+    base_trajectory = results[0.10]
+    crossing_idx = findfirst(x -> x <= vendor_baseline, base_trajectory)
+
+    if !isnothing(crossing_idx)
+        crossing_n = N_values[crossing_idx]
+        crossing_lcoe = base_trajectory[crossing_idx]
+
+        # Add marker at crossing point
+        scatter!(ax, [crossing_n], [crossing_lcoe],
+                color = :red,
+                markersize = 12,
+                marker = :circle)
+
+        # Add annotation
+        text!(ax, crossing_n, crossing_lcoe,
+              text = "  N=$(crossing_n)\n  $(round(crossing_lcoe, digits=1)) EUR/MWh",
+              align = (:left, :bottom),
+              fontsize = 11,
+              color = :red,
+              font = :bold)
+
+        @info "  Crosses vendor baseline at N=$(crossing_n) units"
+    else
+        @info "  Does not reach vendor baseline within N=$(N_max) units"
+    end
+
+    # Legend
+    Legend(fig[1, 1],
+           ax,
+           "",
+           tellheight = false,
+           tellwidth = false,
+           halign = :right,
+           valign = :top,
+           margin = (10, 10, 10, 10),
+           framevisible = true)
+
+    # Add reactor type badge
+    type_colors = Dict(
+        "PWR" => RGBf(0.2, 0.4, 0.8),
+        "BWR" => RGBf(0.3, 0.6, 0.9),
+        "HTR" => RGBf(0.9, 0.6, 0.2),
+        "SFR" => RGBf(0.8, 0.3, 0.3)
+    )
+
+    type_color = get(type_colors, pj.type, RGBf(0.5, 0.5, 0.5))
+
+    Box(fig[1, 1],
+        color = (type_color, 0.8),
+        cornerradius = 5,
+        strokewidth = 0,
+        width = 50,
+        height = 25,
+        halign = :left,
+        valign = :bottom,
+        padding = (5, 5, 5, 5))
+
+    Label(fig[1, 1],
+          pj.type,
+          fontsize = 11,
+          font = :bold,
+          color = :white,
+          halign = :left,
+          valign = :bottom,
+          padding = (10, 10, 10, 10))
+
+    return fig, vendor_baseline, crossing_idx
+end
+
+"""
+    learning_curves_grid_appendix(pjs, wacc_range, electricity_price_mean, opt_scaling, construction_time_ranges)
+
+Create 2-column × 5-row grid of learning curves for appendix.
+
+# Arguments
+- `pjs::Vector`: Vector of project objects
+- `wacc_range::Vector`: WACC range [min, max]
+- `electricity_price_mean::Float64`: Mean electricity price
+- `opt_scaling::String`: Scaling method identifier
+- `construction_time_ranges::Dict`: Construction time ranges by scale
+
+# Returns
+- `fig`: Figure with grid layout
+- `crossing_data::DataFrame`: DataFrame with crossing point data
+"""
+function learning_curves_grid_appendix(pjs::Vector, wacc_range::Vector,
+                                      electricity_price_mean::Float64,
+                                      opt_scaling::String,
+                                      construction_time_ranges::Dict)
+
+    @info "Creating learning curves grid for appendix (2×5 layout)"
+
+    # Create large figure for appendix
+    fig = Figure(size=(1400, 3000))  # Tall figure
+
+    n_reactors = length(pjs)
+    n_cols = 2
+    n_rows = ceil(Int, n_reactors / n_cols)
+
+    crossing_data = DataFrame(
+        Reactor = String[],
+        VendorBaseline = Float64[],
+        CrossingN = Union{Int, Missing}[],
+        CrossingLCOE = Union{Float64, Missing}[]
+    )
+
+    idx = 1
+    for row in 1:n_rows
+        for col in 1:n_cols
+            if idx > n_reactors
+                break
+            end
+
+            pj = pjs[idx]
+
+            @info "  Processing $(pj.name) ($(idx)/$(n_reactors))"
+
+            # Calculate vendor baseline
+            wacc_mean = mean(wacc_range)
+            ct_mean = mean(construction_time_ranges[pj.scale])
+            vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, wacc_mean, ct_mean)
+
+            # Run learning simulation
+            n_sim = 10000
+            N_max = 30
+            learning_rates = [0.05, 0.10, 0.15]
+            N_values = 1:N_max
+
+            learning_type = pj.scale == "Large" ? "deployment" : "factory"
+
+            results = Dict{Float64, Vector{Float64}}()
+
+            for LR in learning_rates
+                lcoe_trajectory = Float64[]
+
+                for N in N_values
+                    rand_vars = gen_rand_vars(opt_scaling, n_sim, wacc_range,
+                                             electricity_price_mean, pj;
+                                             apply_learning=true,
+                                             N_unit=N,
+                                             LR=LR,
+                                             kappa=1.0,
+                                             apply_soak_discount=false,
+                                             construction_time_range=construction_time_ranges[pj.scale],
+                                             quiet=true)
+
+                    disc_res = mc_run(n_sim, pj, rand_vars)
+                    res = npv_lcoe(disc_res, decompose=false)
+
+                    push!(lcoe_trajectory, median(res.lcoe))
+                end
+
+                results[LR] = lcoe_trajectory
+            end
+
+            # Create subplot
+            ax = Axis(fig[row, col],
+                     xlabel = "Cumulative Units (N)",
+                     ylabel = "LCOE [EUR2025/MWh]",
+                     title = pj.name,
+                     titlesize = 14,
+                     titlefont = :bold)
+
+            # Colors and styles
+            lr_colors = Dict(
+                0.05 => RGBf(0.7, 0.7, 0.7),
+                0.10 => RGBf(0.2, 0.4, 0.8),
+                0.15 => RGBf(0.3, 0.7, 0.3)
+            )
+
+            lr_styles = Dict(
+                0.05 => :dash,
+                0.10 => :solid,
+                0.15 => :dot
+            )
+
+            # Plot curves
+            for LR in learning_rates
+                lines!(ax, N_values, results[LR],
+                       color = lr_colors[LR],
+                       linestyle = lr_styles[LR],
+                       linewidth = 2)
+            end
+
+            # Vendor baseline
+            hlines!(ax, [vendor_baseline],
+                    color = :red,
+                    linestyle = :dashdot,
+                    linewidth = 2)
+
+            # Find crossing
+            base_trajectory = results[0.10]
+            crossing_idx = findfirst(x -> x <= vendor_baseline, base_trajectory)
+
+            if !isnothing(crossing_idx)
+                crossing_n = N_values[crossing_idx]
+                crossing_lcoe = base_trajectory[crossing_idx]
+
+                scatter!(ax, [crossing_n], [crossing_lcoe],
+                        color = :red,
+                        markersize = 10,
+                        marker = :circle)
+
+                text!(ax, crossing_n, crossing_lcoe,
+                      text = "  N=$(crossing_n)",
+                      align = (:left, :bottom),
+                      fontsize = 9,
+                      color = :red,
+                      font = :bold)
+
+                push!(crossing_data, (pj.name, vendor_baseline, crossing_n, crossing_lcoe))
+            else
+                push!(crossing_data, (pj.name, vendor_baseline, missing, missing))
+            end
+
+            # Type badge
+            type_colors = Dict(
+                "PWR" => RGBf(0.2, 0.4, 0.8),
+                "BWR" => RGBf(0.3, 0.6, 0.9),
+                "HTR" => RGBf(0.9, 0.6, 0.2),
+                "SFR" => RGBf(0.8, 0.3, 0.3)
+            )
+
+            type_color = get(type_colors, pj.type, RGBf(0.5, 0.5, 0.5))
+
+            Box(fig[row, col],
+                color = (type_color, 0.8),
+                cornerradius = 3,
+                strokewidth = 0,
+                width = 40,
+                height = 20,
+                halign = :left,
+                valign = :bottom,
+                padding = (3, 3, 3, 3))
+
+            Label(fig[row, col],
+                  pj.type,
+                  fontsize = 9,
+                  font = :bold,
+                  color = :white,
+                  halign = :left,
+                  valign = :bottom,
+                  padding = (8, 8, 8, 8))
+
+            idx += 1
+        end
+    end
+
+    # Add shared legend at top
+    legend_elements = [
+        LineElement(color = lr_colors[0.05], linestyle = lr_styles[0.05], linewidth = 2),
+        LineElement(color = lr_colors[0.10], linestyle = lr_styles[0.10], linewidth = 2),
+        LineElement(color = lr_colors[0.15], linestyle = lr_styles[0.15], linewidth = 2),
+        LineElement(color = :red, linestyle = :dashdot, linewidth = 2)
+    ]
+
+    legend_labels = [
+        "LR 5%",
+        "LR 10% (Base)",
+        "LR 15%",
+        "Vendor Baseline"
+    ]
+
+    Legend(fig[0, :],
+           legend_elements,
+           legend_labels,
+           orientation = :horizontal,
+           tellwidth = false,
+           tellheight = true,
+           framevisible = true,
+           titlesize = 12,
+           labelsize = 11)
+
+    # Add reactor type legend
+    type_legend_elements = [
+        PolyElement(color = type_colors["BWR"]),
+        PolyElement(color = type_colors["HTR"]),
+        PolyElement(color = type_colors["PWR"]),
+        PolyElement(color = type_colors["SFR"])
+    ]
+
+    type_legend_labels = ["BWR", "HTR", "PWR", "SFR"]
+
+    Legend(fig[end+1, :],
+           type_legend_elements,
+           type_legend_labels,
+           "Reactor Type Colors",
+           orientation = :horizontal,
+           tellwidth = false,
+           tellheight = true,
+           framevisible = true,
+           titlesize = 11,
+           labelsize = 10)
+
+    return fig, crossing_data
 end

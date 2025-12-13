@@ -408,26 +408,17 @@ save("$outputpath/fig-wacc_sensitivity-$opt_scaling.pdf", fig_wacc_sensitivity)
 @info("WACC sensitivity plot saved (0 new simulations, used existing data)")
 
 ##### WACC sensitivity with confidence intervals #####
-# DISABLED: This requires running new simulations at specific WACC values, but gen_rand_vars
-# has a hardcoded mode=0.07 which causes triangular distribution errors when WACC ≠ 0.07
-# To enable this, the underlying gen_rand_vars function needs to be modified to accept
-# a wacc_mode parameter or use a different distribution strategy.
-
-# @info("Generating WACC sensitivity plot with confidence intervals")
-# construction_time_ranges = Dict(
-#     "Micro" => [3, 8],
-#     "SMR"   => [3, 7],
-#     "Large" => [5, 13]
-# )
-# wacc_range_ci = 0.04:0.01:0.10
-# smr_pjs_ci = filter(p -> p.scale == "SMR", pjs)
-# if !isempty(smr_pjs_ci)
-#     fig_wacc_ci = plot_wacc_sensitivity_with_ci(
-#         smr_pjs_ci, wacc_range_ci, opt_scaling, electricity_price_mean, construction_time_ranges
-#     )
-#     save("$outputpath/fig-wacc_sensitivity_ci-$opt_scaling.pdf", fig_wacc_ci)
-#     @info("✓ Saved: fig-wacc_sensitivity_ci-$opt_scaling.pdf")
-# end
+# Generate version WITH confidence bands (same data, adds 10th-90th percentile shaded regions)
+@info("Generating WACC sensitivity plot with confidence intervals")
+fig_wacc_ci = wacc_sensitivity_plot(
+    outputpath,
+    opt_scaling,
+    pjs_dat,
+    wacc_bin_centers;
+    show_ci=true  # Enable confidence bands
+)
+save("$outputpath/fig-wacc_sensitivity_ci-$opt_scaling.pdf", fig_wacc_ci)
+@info("✓ Saved: fig-wacc_sensitivity_ci-$opt_scaling.pdf (with 10th-90th percentile bands)")
 
 ##### IDC Sensitivity Table #####
 # Shows IDC component of LCOE as function of construction time and WACC
