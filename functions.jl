@@ -86,7 +86,7 @@ function learning_multiplier(N::Int, LR::Float64;
 end
 
 """
-    carelli_occ(p::Float64, occ::Float64; p_ref::Float64=1200.0, beta::Float64=0.20)
+    carelli_occ(p::Float64, occ::Float64; p_ref::Float64=1200.0, beta::Float64=0.6)
 
 Apply Carelli scaling to normalize OCC (Overnight Capital Cost) to a reference capacity for scale-independent comparison.
 
@@ -98,11 +98,9 @@ This allows fair comparison across different reactor sizes (Micro/SMR/Large).
 - `p::Float64`: Actual reactor capacity [MWe]
 - `occ::Float64`: Raw overnight capital cost [EUR/kW or EUR/MW depending on context]
 - `p_ref::Float64=1200.0`: Reference capacity for normalization [MWe] (default: typical large PWR)
-- `beta::Float64=0.20`: Scaling exponent (economies of scale parameter)
-  - β = 0.15: Weak economies of scale
-  - β = 0.20: Moderate (default, typical for nuclear)
-  - β = 0.25: Strong economies of scale
-  - β = 0.30: Very strong economies of scale
+- `beta::Float64=0.6`: Scaling exponent (economies of scale parameter)
+  - Carelli et al. (2010) Table 6 reports β ∈ [0.5, 0.7]
+  - Default 0.6 is the midpoint of the empirical range
 
 # Theory
 Cost scaling relationship: OCC(P) = OCC_ref × (P/P_ref)^(-β)
@@ -117,20 +115,21 @@ This removes the size penalty, making costs comparable across scales.
 ```julia
 # 300 MW SMR with OCC = 6000 EUR/kW
 # Normalize to 1200 MW reference
-carelli_occ(300.0, 6000.0)  # Returns ~4757 EUR/kW (removes small-scale penalty)
+carelli_occ(300.0, 6000.0)  # Returns scale-adjusted OCC
 
 # 1200 MW Large reactor with OCC = 5500 EUR/kW
 carelli_occ(1200.0, 5500.0)  # Returns 5500 EUR/kW (already at reference)
 
-# 50 MW Micro with OCC = 8000 EUR/kW, strong scaling (β=0.25)
-carelli_occ(50.0, 8000.0, beta=0.25)  # Returns ~5040 EUR/kW
+# Using bounds of Carelli range
+carelli_occ(300.0, 6000.0, beta=0.5)  # Lower bound
+carelli_occ(300.0, 6000.0, beta=0.7)  # Upper bound
 ```
 
 # References
-- Carelli et al. (2010): Economics of small modular reactors
+- Carelli et al. (2010): Economics of small modular reactors, Table 6
 - OECD-NEA (2011): Current Status, Technical Feasibility and Economics of Small Nuclear Reactors
 """
-function carelli_occ(p::Float64, occ::Float64; p_ref::Float64=1200.0, beta::Float64=0.20)
+function carelli_occ(p::Float64, occ::Float64; p_ref::Float64=1200.0, beta::Float64=0.6)
     # Apply power-law normalization
     # OCC_SI = OCC_raw × (P / P_ref)^β
     return occ * (p / p_ref)^beta
@@ -247,7 +246,7 @@ This function now uses:
 - "roulstone": Roulstone scaling with uniform β ∈ [0.20, 0.75]
 - "rothwell": Rothwell scaling (Roulstone parameterization)
 - "uniform": Uniform distribution between scaled bounds
-- "carelli": Carelli scaling (fixed β = 0.20, P_ref = 1200 MWe)
+- "carelli": Carelli scaling with uniform β ∈ [0.5, 0.7] from Table 6
 
 # Learning (Disabled by Default)
 - SOAK discount: Only if apply_soak_discount=true
@@ -411,25 +410,20 @@ function gen_rand_vars(opt_scaling::String, n::Int64, wacc::Vector, electricity_
                 rand_investment = investment_scaled[1] .+ (investment_scaled[2]-investment_scaled[1]) .* rand(n,1) .* soak_factor
             elseif opt_scaling == "carelli"
                 if !quiet
-                    @info("using Carelli scaling (economies of scale normalization)")
+                    @info("using Carelli scaling with uncertainty range")
                 end
-                # Carelli scaling: normalize OCC to reference capacity for scale-independent comparison
-                # Default: P_ref = 1200 MWe, β = 0.20 (can be parameterized later)
-                p_ref = 1200.0  # Reference capacity [MWe]
-                beta = 0.20     # Scaling exponent (economies of scale parameter)
+                # Carelli scaling: β ∈ [0.5, 0.7] from Carelli et al. (2010) Table 6
+                # Sample β uniformly (similar structure to Roulstone)
+                carelli_range = [0.5, 0.7]
+                rand_beta = carelli_range[1] .+ (carelli_range[2] - carelli_range[1]) .* rand(n, 1)
 
-                # Get raw OCC from manufacturer estimate [EUR/kW]
-                raw_occ = pj.investment  # Already in EUR/kW
-
-                # Apply Carelli normalization
-                occ_si = carelli_occ(pj.plant_capacity, raw_occ, p_ref=p_ref, beta=beta)
-
-                # Convert back to total investment [EUR]
-                rand_investment = occ_si * pj.plant_capacity * ones(n) * soak_factor
+                # Apply power-law scaling with sampled β
+                rand_investment = pj.reference_pj[1] * pj.reference_pj[2] * soak_factor .*
+                                 (pj.plant_capacity / pj.reference_pj[2]) .^ rand_beta
 
                 if !quiet
-                    @info("  Carelli parameters: P=$(pj.plant_capacity) MWe, P_ref=$p_ref MWe, β=$beta")
-                    @info("  Raw OCC: $(round(raw_occ, digits=0)) EUR/kW → SI-OCC: $(round(occ_si, digits=0)) EUR/kW")
+                    @info("  Carelli parameters: β ∈ [$(carelli_range[1]), $(carelli_range[2])]")
+                    @info("  Reference: $(pj.reference_pj[1]) EUR/kW @ $(pj.reference_pj[2]) MW")
                 end
             else
                 @error("Option for the scaling method is unknown.")
@@ -1164,13 +1158,13 @@ function generate_combined_sample_from_outer_base(param_set_S::Vector{Symbol},
             combined[:investment] = [inv_lo + (inv_hi - inv_lo) * u]
 
         elseif opt_scaling == "carelli"
-            # Carelli: fixed β = 0.20, normalized to P_ref = 1200 MWe
-            p_ref = 1200.0
-            beta_carelli = 0.20
-            # Scale-independent OCC (normalized to reference capacity)
+            # Carelli: β ∈ [0.5, 0.7] from Carelli et al. (2010) Table 6
+            carelli_range = [0.5, 0.7]
+            beta_carelli = carelli_range[1] + (carelli_range[2] - carelli_range[1]) * rand(rng)
+            # Apply power-law scaling with sampled β
             occ_ref = pj.reference_pj[1] * pj.reference_pj[2]  # Reference OCC at ref capacity
-            occ_si = occ_ref * (pj.plant_capacity / p_ref) ^ beta_carelli
-            combined[:investment] = [occ_si * pj.plant_capacity]
+            occ_scaled = occ_ref * (pj.plant_capacity / pj.reference_pj[2]) ^ beta_carelli
+            combined[:investment] = [occ_scaled]
 
         else
             error("Unknown opt_scaling mode: $opt_scaling")
@@ -1726,7 +1720,7 @@ The gen_scaled_investment function takes in two arguments, scaling and pj, and r
             The deterministic investment cost based on manufacturer estimates in EUR per MW.
             The range (lower and upper bound) of scaled investment cost based on Roulstone in EUR per MW.
             The range (lower and upper bound) of scaled investment cost based on Rothwell in EUR per MW.
-            The scaled investment cost based on Carelli (fixed β = 0.20) in EUR per MW.
+            The range (lower and upper bound) of scaled investment cost based on Carelli β ∈ [0.5, 0.7] in EUR per MW.
 
     Note: SOAK discount (learning factor) is NOT applied in this function. Learning is handled separately in scenario simulations via the apply_learning parameter in gen_rand_vars().
 """
@@ -1741,9 +1735,9 @@ function gen_scaled_investment(scaling::Vector, pj::project)
         scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ scaling / pj.plant_capacity)
         # scaled investment cost based on Rothwell [EUR/MW]
         scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ (1 .+ log.(scaling) ./ log(2)) / pj.plant_capacity)
-        # scaled investment cost based on Carelli (fixed β = 0.20) [EUR/MW]
-        carelli_scaling = 0.20
-        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) ^ carelli_scaling / pj.plant_capacity)
+        # scaled investment cost based on Carelli β ∈ [0.5, 0.7] from Table 6 [EUR/MW]
+        carelli_scaling = [0.5, 0.7]
+        scaled_investment = vcat(scaled_investment, pj.reference_pj[1] * pj.reference_pj[2] * (pj.plant_capacity/pj.reference_pj[2]) .^ carelli_scaling / pj.plant_capacity)
 
     # output
     return(scaled_investment = scaled_investment)

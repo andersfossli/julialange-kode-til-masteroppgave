@@ -82,40 +82,141 @@ end
 
 ##### comparison plot for Roulstone vs. Rothwell scaling #####
 
-# α range
-x = 0:0.01:1;
-# β Roulstone
-y = x;
-# β Rothwell
-z = 1 .+ log.(x)/log(2);
+# Two-panel theory figure: (a) β(α) curves, (b) practical cost scaling
+# Stacked vertically for better readability in thesis
 
-# define plot
-fig_theory = Figure();
+fig_theory = Figure(size=(900, 1000));
 
-ax_theory = Axis(fig_theory[1,1], xlabel = "α", ylabel = "β(α)");
-xlims!(0, 1)
-ylims!(-2, 1)
+# === Panel (a): Theoretical β(α) relationship ===
+ax_a = Axis(fig_theory[1, 1],
+    xlabel = L"Capacity Ratio $\alpha = P/P_\text{ref}$",
+    ylabel = L"Illustrative effective exponent $\beta(\alpha)$",
+    title = "(a) Auxiliary functions for comparing scale penalty",
+    titlealign = :left,
+    titlesize = 18,
+    xlabelsize = 16,
+    ylabelsize = 16,
+    xticklabelsize = 14,
+    yticklabelsize = 14)
 
-roulstone = lines!(x, y, label = "Roulstone", linewidth = 3, color = :darkblue);
-rothwell = lines!(x, z, label = "Rothwell", linewidth = 3, color = :green);
-carelli = hlines!(ax_theory, [0.20], label = "Carelli", linewidth = 3, color = :orange, linestyle = :dash);
-hlines!(ax_theory, [0], color = :gray);
+# α range (capacity ratio)
+α = 0.01:0.01:1.0
+# β for each model
+β_roulstone = α                          # Linear: β = α
+β_rothwell = 1 .+ log.(α) ./ log(2)      # Logarithmic: β = 1 + log₂(α)
+# Carelli: β ∈ [0.5, 0.7] from Carelli et al. (2010) Table 6
+β_carelli_min = fill(0.5, length(α))
+β_carelli_max = fill(0.7, length(α))
+β_carelli_mid = fill(0.6, length(α))     # Midpoint for reference line
 
-Legend(fig_theory[1, 1],
-    [roulstone, rothwell, carelli],
-    [L"β^\text{Roulstone}", L"β^\text{Rothwell}", L"β^\text{Carelli}"],
-    tellheight = false,
+xlims!(ax_a, 0, 1)
+ylims!(ax_a, -2, 1.2)
+
+# Shade Carelli's β range
+band!(ax_a, α, β_carelli_min, β_carelli_max,
+      color = (RGBf(1.0, 0.6, 0.2), 0.3),  # Light orange with transparency
+      label = "Carelli Range")
+
+l_roul = lines!(ax_a, α, β_roulstone, linewidth = 3, color = :darkblue)
+l_roth = lines!(ax_a, α, β_rothwell, linewidth = 3, color = :green)
+l_care = lines!(ax_a, α, β_carelli_mid, linewidth = 3, color = :orange, linestyle = :dash)
+hlines!(ax_a, [0], color = :gray70, linewidth = 1)
+hlines!(ax_a, [1], color = :gray70, linewidth = 1, linestyle = :dot)
+
+# Annotations for key regions
+text!(ax_a, 0.7, 1.1, text = "No scaling (β=1)", fontsize = 13, color = :gray50)
+text!(ax_a, 0.15, -1.5, text = "Strong economies\nof scale", fontsize = 13, color = :gray50, align = (:center, :center))
+
+# Label Carelli range
+text!(ax_a, 0.75, 0.6, text = "Carelli\nβ ∈ [0.5, 0.7]", fontsize = 13,
+      color = :darkorange, align = (:left, :center))
+
+# === Panel (b): Practical Cost Implications ===
+ax_b = Axis(fig_theory[2, 1],
+    xlabel = "Plant Capacity [MW]",
+    ylabel = "Relative Specific Cost [EUR/kW]",
+    title = "(b) Cost Scaling: SMR vs Large Reactor",
+    titlealign = :left,
+    titlesize = 18,
+    xlabelsize = 16,
+    ylabelsize = 16,
+    xticklabelsize = 14,
+    yticklabelsize = 14)
+
+# Reference: 1000 MW large reactor with specific cost = 1.0
+P_ref = 1000.0  # MW
+capacities = 50:10:1200  # MW range
+
+# Calculate relative specific cost for each model
+# Specific cost ratio = (P/P_ref)^(β-1)
+function calc_specific_cost(P, P_ref, β)
+    α = P / P_ref
+    return α^(β - 1)
+end
+
+# For Roulstone and Rothwell, β depends on α
+cost_roulstone = [calc_specific_cost(P, P_ref, P/P_ref) for P in capacities]  # β = α
+cost_rothwell = [calc_specific_cost(P, P_ref, 1 + log(P/P_ref)/log(2)) for P in capacities]  # β = 1 + log₂(α)
+
+# Carelli: β ∈ [0.5, 0.7] - calculate min, mid, max
+cost_carelli_min = [calc_specific_cost(P, P_ref, 0.5) for P in capacities]
+cost_carelli_mid = [calc_specific_cost(P, P_ref, 0.6) for P in capacities]
+cost_carelli_max = [calc_specific_cost(P, P_ref, 0.7) for P in capacities]
+
+# Shade Carelli's cost range
+band!(ax_b, collect(capacities), cost_carelli_max, cost_carelli_min,
+      color = (RGBf(1.0, 0.6, 0.2), 0.3))
+
+# Plot theoretical cost curves
+lines!(ax_b, collect(capacities), cost_roulstone, linewidth = 3, color = :darkblue)
+lines!(ax_b, collect(capacities), cost_rothwell, linewidth = 3, color = :green)
+lines!(ax_b, collect(capacities), cost_carelli_mid, linewidth = 3, color = :orange, linestyle = :dash)
+
+# Reference line at 1.0
+hlines!(ax_b, [1.0], color = :gray70, linewidth = 1, linestyle = :dot)
+
+# Mark reference point (1000 MW)
+scatter!(ax_b, [P_ref], [1.0], markersize = 14, color = :black, marker = :star5)
+text!(ax_b, P_ref + 30, 1.05, text = "Reference\n(1000 MW)", fontsize = 13, align = (:left, :bottom))
+
+
+
+# Mark SMR range (50–400 MW)
+vspan!(ax_b, 50, 470, color = (:teal, 0.10))
+text!(ax_b, 260, maximum(cost_carelli_min) * 0.85,
+      text = "SMR Range",
+      fontsize = 13,
+      color = :teal,
+      align = (:center, :top))
+
+xlims!(ax_b, 0, 1200)
+ylims!(ax_b, 0.9, maximum(cost_carelli_min) * 1.1)
+
+# Shared legend at bottom
+Legend(fig_theory[3, 1],
+    [l_roul, l_roth, l_care],
+    [L"Roulstone (illustrative): $\beta^{R}(\alpha)=\alpha$",
+     L"Rothwell (illustrative): $\beta^{W}(\alpha)=1+\log_2(\alpha)$",
+     L"Carelli: $a_{\mathrm{ES}}\in[0.5,\,0.7]$"],
+    orientation = :horizontal,
+    framevisible = true,
+
     tellwidth = false,
-    halign = :right, valign = :bottom,
-    framevisible = false, orientation = :vertical);
+    tellheight = true,
+    labelsize = 14)
+
+# Adjust row sizes
+rowsize!(fig_theory.layout, 1, Relative(0.42))
+rowsize!(fig_theory.layout, 2, Relative(0.42))
+rowsize!(fig_theory.layout, 3, Relative(0.16))
 
 fig_theory
 save("$outputpath/fig-theory.pdf", fig_theory);
 
 ##### comparison plot for investment cost from manufacturers vs. estimation #####
 
-# choose scaling parameters for the plot
-scaling_plot = [0.20, 0.75];
+# choose scaling parameters for the plot (Carelli range from Table 6)
+scaling_plot = [0.5, 0.7];
 
 # Original plot (all reactors)
 # fig_invest_comparison = investment_plot(pjs, scaling_plot)
@@ -275,8 +376,16 @@ save("$outputpath/fig-lcoe_comparison-$opt_scaling.pdf", fig_lcoe_comparison);
 ##### LCOE histogram grouped by scale (Micro/SMR/Large) #####
 # requires lcoe_results from simulation and pjs vector
 
+# Generate separate histogram for each scale (better for LaTeX inclusion)
+for scale in ["Micro", "SMR", "Large"]
+    fig_hist = lcoe_scale_histogram_single(lcoe_results, pjs, scale)
+    save("$outputpath/fig-lcoe_histogram_$(lowercase(scale))-$opt_scaling.pdf", fig_hist)
+    @info("✓ Saved: fig-lcoe_histogram_$(lowercase(scale))-$opt_scaling.pdf")
+end
+
+# Also keep the combined version for reference
 fig_lcoe_scale_hist = lcoe_scale_histogram(lcoe_results, pjs)
-save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_hist);
+save("$outputpath/fig-lcoe_scale_histogram-$opt_scaling.pdf", fig_lcoe_scale_hist)
 
 ##### LCOE threshold probability plot #####
 # Shows cumulative probability: P(LCOE ≤ threshold) by scale
@@ -759,6 +868,17 @@ if !isempty(smr_reactors_only)
     fig_learning_smr = learning_curves_smr(smr_reactors_only, wacc, electricity_price_mean, opt_scaling, outputpath)
     save("$outputpath/fig-learning_curves_smr-$opt_scaling.pdf", fig_learning_smr)
     @info("✓ Saved: fig-learning_curves_smr-$opt_scaling.pdf")
+end
+
+# PLOT 3b: Standalone UK-SMR (RR) learning curve for thesis main text
+@info("Generating standalone UK-SMR (RR) learning curve for thesis...")
+uk_smr_reactor = filter(pj -> pj.name == "UK-SMR (RR)", pjs)
+if !isempty(uk_smr_reactor)
+    fig_standalone_uksmr = learning_curve_standalone(uk_smr_reactor[1], wacc, electricity_price_mean, opt_scaling, outputpath)
+    save("$outputpath/fig-learning_curve_standalone_uksmr-$opt_scaling.pdf", fig_standalone_uksmr)
+    @info("✓ Saved: fig-learning_curve_standalone_uksmr-$opt_scaling.pdf")
+else
+    @warn("UK-SMR (RR) not found in reactor list - skipping standalone plot")
 end
 
 # PLOT 4: Threshold Probability Curves (3 separate figures by scale)

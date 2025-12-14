@@ -98,7 +98,7 @@ for p in eachindex(pjs)
     lcoe_variable_om_fuel_results.res = vec(npv_lcoe_res.lcoe_variable_om_fuel)
     rename!(lcoe_variable_om_fuel_results, :res => pjs[p].name)
 
-    # Save WACC and investment values
+    # Save WACC and investment values 
     wacc_values.res = vec(rand_vars.wacc)
     rename!(wacc_values, :res => pjs[p].name)
     investment_values.res = vec(rand_vars.investment)

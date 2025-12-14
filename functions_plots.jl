@@ -444,6 +444,126 @@ function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
 end
 
 """
+    lcoe_scale_histogram_single(lcoe_results::DataFrame, pjs::Vector, scale::String)
+
+Create a single histogram showing LCOE distribution for one reactor scale.
+Returns a standalone figure suitable for individual PDF export.
+
+# Arguments
+- `lcoe_results::DataFrame`: DataFrame containing LCOE results from Monte Carlo simulation
+- `pjs::Vector`: Vector of project objects containing reactor information
+- `scale::String`: Scale to plot ("Micro", "SMR", or "Large")
+
+# Returns
+- Figure object with single histogram
+"""
+function lcoe_scale_histogram_single(lcoe_results::DataFrame, pjs::Vector, scale::String)
+
+    # Color scheme matching learning rate plots (by reactor type)
+    type_colors = Dict(
+        "PWR" => RGBf(0.8, 0.2, 0.2),
+        "BWR" => RGBf(0.9, 0.5, 0.0),
+        "HTR" => RGBf(0.85, 0.7, 0.0),
+        "SFR" => RGBf(0.0, 0.5, 0.5),
+        "MSR" => RGBf(0.6, 0.0, 0.6)
+    )
+
+    # Create single figure - wider for better readability
+    fig = Figure(size = (800, 500), backgroundcolor = :white)
+
+    # Get all reactors for this scale
+    scale_reactors = filter(pj -> pj.scale == scale, pjs)
+
+    if isempty(scale_reactors)
+        @warn "No reactors found for scale: $scale"
+        return fig
+    end
+
+    # Aggregate all data for this scale
+    all_scale_data = Float64[]
+    for pj in scale_reactors
+        if pj.name in names(lcoe_results)
+            append!(all_scale_data, lcoe_results[!, pj.name])
+        end
+    end
+
+    if isempty(all_scale_data)
+        @warn "No LCOE data found for scale: $scale"
+        return fig
+    end
+
+    # Filter to 5-95% percentile to remove extreme outliers
+    q05 = quantile(all_scale_data, 0.05)
+    q95 = quantile(all_scale_data, 0.95)
+    filtered_data = filter(x -> q05 <= x <= q95, all_scale_data)
+
+    # Create axis
+    ax = Axis(fig[1, 1],
+              xlabel = "LCOE [EUR₂₀₂₅/MWh]",
+              ylabel = "Probability Density",
+              title = "$scale Reactors: LCOE Distribution",
+              titlesize = 18,
+              xlabelsize = 14,
+              ylabelsize = 14)
+
+    # Plot separate histogram for each reactor type within this scale
+    type_data = Dict{String, Vector{Float64}}()
+
+    for pj in scale_reactors
+        if pj.name in names(lcoe_results)
+            reactor_lcoe = filter(x -> q05 <= x <= q95, lcoe_results[!, pj.name])
+            if !haskey(type_data, pj.type)
+                type_data[pj.type] = Float64[]
+            end
+            append!(type_data[pj.type], reactor_lcoe)
+        end
+    end
+
+    # Plot stacked/overlaid histograms by type
+    for (reactor_type, data) in sort(collect(type_data))
+        if !isempty(data)
+            color = get(type_colors, reactor_type, RGBf(0.5, 0.5, 0.5))
+            hist!(ax, data,
+                  bins = 40,
+                  normalization = :pdf,
+                  color = (color, 0.5),
+                  strokewidth = 0.5,
+                  strokecolor = (color, 0.8),
+                  label = reactor_type)
+        end
+    end
+
+    # Calculate and plot mean and median for the entire scale
+    mean_val = mean(filtered_data)
+    median_val = median(filtered_data)
+
+    vlines!(ax, [mean_val],
+            color = :black,
+            linestyle = :solid,
+            linewidth = 2.5,
+            label = "Mean: $(round(mean_val, digits=1))")
+
+    vlines!(ax, [median_val],
+            color = (:black, 0.7),
+            linestyle = :dash,
+            linewidth = 2.5,
+            label = "Median: $(round(median_val, digits=1))")
+
+    # Add grid for readability
+    ax.xgridvisible = true
+    ax.ygridvisible = true
+    ax.xgridcolor = (:black, 0.1)
+    ax.ygridcolor = (:black, 0.1)
+
+    # Add legend
+    legend_pos = scale == "Large" ? :lt : :rt
+    axislegend(ax, position = legend_pos, framevisible = true,
+               labelsize = 11, bgcolor = (:white, 0.9))
+
+    return fig
+end
+
+"""
     learning_curve_plot(outputpath::String, opt_scaling::String, learning_scenarios::Vector;
                         reactor_name::Union{Nothing,String}=nothing, scale_filter::Union{Nothing,String}=nothing)
 
@@ -2445,12 +2565,16 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
         "MSR" => RGBf(0.5, 0.5, 0.5)     # Gray
     )
 
-    # Create grid layout
+    # Create grid layout - 2 columns × 5 rows (PORTRAIT orientation for PDF appendix)
+    # This gives a tall figure that fits better on A4/Letter pages
     n_reactors = length(all_reactors)
-    n_cols = min(5, n_reactors)  # Up to 5 columns for better layout
-    n_rows = Int(ceil(n_reactors / n_cols))
+    n_cols = 2   # 2 columns wide
+    n_rows = Int(ceil(n_reactors / n_cols))  # 5 rows for 10 reactors
 
-    fig = Figure(size=(350 * n_cols, 300 * n_rows))
+    # Figure size: 2 columns × 5 rows = portrait orientation
+    # Width = 500 per column × 2 = 1000px
+    # Height = 400 per row × 5 = 2000px (tall portrait)
+    fig = Figure(size=(500 * n_cols, 400 * n_rows))
 
     # Try to load baseline LCOE data
     baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling.csv"
@@ -2508,15 +2632,15 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
         # Get color for this reactor type
         reactor_color = get(reactor_type_colors, pj.type, :gray)
 
-        # Add vendor target line (if available)
-        vendor_lcoe = get(vendor_target_lcoe, pj.name, nothing)
-        if !isnothing(vendor_lcoe)
-            hlines!(ax, [vendor_lcoe];
-                   color = :black,
-                   linestyle = :dash,
-                   linewidth = 1.5,
-                   label = idx == 1 ? "Vendor target (manufacturer OCC)" : "")
-        end
+        # Calculate vendor baseline using OPTIMISTIC assumptions (7% WACC, 3yr construction)
+        vendor_lcoe = calculate_vendor_baseline_lcoe_simple(pj, 0.07, 3)
+
+        # Add vendor baseline as horizontal reference line
+        hlines!(ax, [vendor_lcoe];
+               color = :red,
+               linestyle = :dashdot,
+               linewidth = 2.0,
+               label = idx == 1 ? "Vendor Baseline (optimistic)" : "")
 
         # Plot learning curves with confidence bands
         for LR in learning_rates
@@ -2605,6 +2729,183 @@ function learning_curves_smr(pjs::Vector, wacc_range::Vector, electricity_price_
 end
 
 """
+    learning_curve_standalone(pj::project, wacc_range::Vector, electricity_price_mean::Float64,
+                              opt_scaling::String, outputpath::String)
+
+Create a standalone learning curve plot for a single reactor (for thesis main text).
+Produces a larger, publication-quality figure with full legend and annotations.
+
+# Arguments
+- `pj::project`: Single reactor project object
+- `wacc_range::Vector`: WACC range [min, max]
+- `electricity_price_mean::Float64`: Mean electricity price
+- `opt_scaling::String`: Scaling method identifier
+- `outputpath::String`: Path to read baseline LCOE data
+
+# Returns
+- `Figure`: Makie figure object
+"""
+function learning_curve_standalone(pj::project, wacc_range::Vector, electricity_price_mean::Float64,
+                                   opt_scaling::String, outputpath::String)
+
+    @info "Creating standalone learning curve for $(pj.name)"
+
+    # Learning parameters
+    N_values = [1, 2, 4, 6, 8, 12, 16, 20, 24, 30]
+    learning_rates = [0.05, 0.10, 0.15]  # Pessimistic, Base, Optimistic
+
+    lr_linewidths = Dict(0.05 => 2.0, 0.10 => 3.5, 0.15 => 2.0)
+    lr_labels = Dict(0.05 => "LR 5% (Pessimistic)", 0.10 => "LR 10% (Base)", 0.15 => "LR 15% (Optimistic)")
+
+    # Color for reactor type
+    reactor_type_colors = Dict(
+        "BWR" => RGBf(0.8, 0.4, 0.0),
+        "PWR" => RGBf(0.8, 0.4, 0.0),
+        "HTR" => RGBf(0.7, 0.6, 0.0),
+        "SFR" => RGBf(0.0, 0.5, 0.5),
+        "MSR" => RGBf(0.5, 0.5, 0.5)
+    )
+    reactor_color = get(reactor_type_colors, pj.type, :gray)
+
+    # Create single figure - 10% narrower, 5% less height for better PDF fit
+    # Layout: title at top, plot in middle, legend at bottom
+    fig = Figure(size=(920, 520))
+    colsize!(fig.layout, 1, Relative(1))  # Force column to take full figure width
+
+    # Load baseline LCOE from simulation results
+    baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling.csv"
+    foak_lcoe = 100.0  # Default
+    foak_std = 20.0    # Default
+
+    if isfile(baseline_file)
+        summary_data = CSV.read(baseline_file, DataFrame)
+        if "variable" in names(summary_data)
+            idx = findfirst(==(pj.name), summary_data.variable)
+            if !isnothing(idx)
+                if "median" in names(summary_data)
+                    foak_lcoe = summary_data[idx, "median"]
+                end
+                if "std" in names(summary_data)
+                    foak_std = summary_data[idx, "std"]
+                end
+            end
+        end
+    end
+
+    # Calculate vendor baseline
+    vendor_lcoe = calculate_vendor_baseline_lcoe_simple(pj, 0.07, 3)
+
+    # Create axis with full labels - in row 2 to leave room for title
+    # aspect = nothing disables any global theme aspect constraints
+    # tellwidth/tellheight = true ensures axis participates in layout sizing
+    ax = Axis(fig[2, 1],
+             title = "$(pj.name): Learning Curve Analysis",
+             titlesize = 16,
+             xlabel = "Cumulative Units Built (N)",
+             ylabel = "LCOE [EUR₂₀₂₅/MWh]",
+             xlabelsize = 14,
+             ylabelsize = 14,
+             aspect = nothing,
+             autolimitaspect = nothing,
+             tellwidth = true,
+             tellheight = true)
+
+    # Store legend entries manually
+    legend_entries = []
+    legend_labels_list = []
+
+    # Add vendor baseline as horizontal reference line
+    hline = hlines!(ax, [vendor_lcoe];
+           color = :red,
+           linestyle = :dashdot,
+           linewidth = 2.5)
+    push!(legend_entries, [hline])
+    push!(legend_labels_list, "Vendor Baseline (7% WACC, 90% CF)")
+
+    # Plot learning curves with confidence bands
+    for LR in learning_rates
+        lcoe_curve = Float64[]
+        lcoe_lower = Float64[]
+        lcoe_upper = Float64[]
+
+        for N in N_values
+            # Apply Wright's Law
+            multiplier = (1 - LR)^(log2(N))
+            noak_lcoe = foak_lcoe * multiplier
+            push!(lcoe_curve, noak_lcoe)
+
+            # Propagate uncertainty
+            noak_std = foak_std * multiplier
+            push!(lcoe_lower, noak_lcoe - 1.96 * noak_std)
+            push!(lcoe_upper, noak_lcoe + 1.96 * noak_std)
+        end
+
+        # Plot confidence band
+        band_alpha = LR == 0.10 ? 0.25 : 0.15
+        band!(ax, N_values, lcoe_lower, lcoe_upper,
+             color = (reactor_color, band_alpha))
+
+        # Plot line
+        line = lines!(ax, N_values, lcoe_curve,
+              color = reactor_color,
+              linestyle = :solid,
+              linewidth = lr_linewidths[LR])
+
+        push!(legend_entries, [line])
+        push!(legend_labels_list, lr_labels[LR])
+
+        # Add dots for each point
+        scatter!(ax, N_values, lcoe_curve,
+                color = reactor_color,
+                markersize = LR == 0.10 ? 10 : 7,
+                strokewidth = 1,
+                strokecolor = :white)
+
+        # Mark crossing point with vendor baseline
+        idx_hit = findfirst(x -> x <= vendor_lcoe, lcoe_curve)
+        if !isnothing(idx_hit)
+            N_hit = N_values[idx_hit]
+            scatter!(ax, [N_hit], [lcoe_curve[idx_hit]];
+                    color = :red,
+                    markersize = 12,
+                    marker = :star5,
+                    strokewidth = 1,
+                    strokecolor = :black)
+
+            # Add annotation for crossing point (only for base case)
+            if LR == 0.10
+                text!(ax, N_hit + 1, lcoe_curve[idx_hit] + 10,
+                      text = "Competitive at\nN = $N_hit units",
+                      fontsize = 10,
+                      color = :red,
+                      align = (:left, :bottom))
+            end
+        end
+    end
+
+    # Add legend BELOW the plot (row 3) - larger text for PDF readability
+    Legend(fig[3, 1], legend_entries, legend_labels_list,
+           orientation = :horizontal,
+           framevisible = true,
+           labelsize = 14,
+           patchsize = (20, 20),
+           tellwidth = false,
+           tellheight = true)
+
+    # Add reactor type info as subtitle at TOP (row 1)
+    # tellwidth = false prevents label from shrinking column width
+    Label(fig[1, 1], "$(pj.type) | $(pj.scale) | $(Int(pj.plant_capacity)) MW",
+          fontsize = 12, color = :gray50, tellwidth = false)
+
+    # Adjust row sizes: small title, large plot, small legend
+    rowsize!(fig.layout, 1, Auto(0.05))  # Title row
+    rowsize!(fig.layout, 2, Auto(1.0))   # Plot row (main content)
+    rowsize!(fig.layout, 3, Auto(0.1))   # Legend row
+
+    return fig
+end
+
+"""
     threshold_probability_curves(lcoe_results::DataFrame, pjs::Vector)
 
 Create S-curves showing probability of LCOE exceeding various thresholds.
@@ -2656,11 +2957,16 @@ function threshold_probability_curves(lcoe_results::DataFrame, pjs::Vector)
             continue
         end
 
-        fig = Figure(size=(1000, 700))
+        fig = Figure(size=(1100, 750))
         ax = Axis(fig[1, 1],
-                 xlabel = "LCOE Threshold [EUR2025/MWh]",
+                 xlabel = "LCOE Threshold [EUR₂₀₂₅/MWh]",
                  ylabel = "Probability of Exceeding Threshold [%]",
-                 title = "$scale Reactors: LCOE Threshold Exceedance Probability")
+                 title = "$scale Reactors: LCOE Threshold Exceedance Probability",
+                 titlesize = 22,
+                 xlabelsize = 20,
+                 ylabelsize = 20,
+                 xticklabelsize = 18,
+                 yticklabelsize = 18)
 
         # Plot each reactor in this scale
         for pj in scale_pjs
@@ -2678,15 +2984,19 @@ function threshold_probability_curves(lcoe_results::DataFrame, pjs::Vector)
 
             lines!(ax, collect(thresholds), prob_exceed,
                   color = line_color,
-                  linewidth = 2.5,
+                  linewidth = 3,
                   label = pj.name)
         end
 
         # Add 50% probability line
         hlines!(ax, [50.0], linestyle = :dash, color = :black, linewidth = 2)
 
-        # Add legend
-        Legend(fig[1, 2], ax, "Reactors", framevisible = true, labelsize = 11)
+        # Add legend with larger text
+        Legend(fig[1, 2], ax, "Reactors",
+               framevisible = true,
+               labelsize = 16,
+               titlesize = 18,
+               patchsize = (30, 30))
 
         figures[scale] = fig
     end
@@ -2758,108 +3068,108 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
             push!(variable_om_fuel_values, median(res.lcoe_variable_om_fuel))
         end
 
-        # Create figure with clean academic style (matching learning curves)
+        # Create figure with 2-row grid layout for better readability
         n_reactors = length(reactor_labels)
-        fig = Figure(size=(max(800, 200 * n_reactors), 700), backgroundcolor=:white)
-        ax = Axis(fig[1,1],
-                 title = "$scale Reactors: LCOE Component Breakdown ($opt_scaling scaling)",
-                 ylabel = "LCOE [EUR2025/MWh]",
-                 xticks = (1:n_reactors, reactor_labels),
-                 xticklabelrotation = π/4,
-                 xgridvisible = false,
-                 ygridvisible = true,
-                 ygridcolor = (:gray, 0.2),
-                 ygridstyle = :dash)
+        n_cols = min(5, n_reactors)  # Max 5 per row
+        n_rows = ceil(Int, n_reactors / n_cols)
 
-        # Create stacked bars
-        # Layer 1: OCC (starts at 0)
-        barplot!(ax, 1:n_reactors, occ_values,
-                color = component_colors["OCC"],
-                width = 0.7)
+        # Figure width to match legend width - adjust this value to align plot with legend
+        fig = Figure(size=(max(1100, 220 * n_cols), 500 * n_rows + 180), backgroundcolor=:white)
 
-        # Layer 2: IDC (starts at OCC)
-        barplot!(ax, 1:n_reactors, idc_values,
-                offset = occ_values,
-                color = component_colors["IDC"],
-                width = 0.7)
+        # Force column to expand to full figure width
+        colsize!(fig.layout, 1, Relative(1))
 
-        # Layer 3: Fixed O&M (starts at OCC + IDC)
-        barplot!(ax, 1:n_reactors, fixed_om_values,
-                offset = occ_values .+ idc_values,
-                color = component_colors["Fixed O&M"],
-                width = 0.7)
+        # Title at top
+        Label(fig[0, 1], "$scale Reactors: LCOE Component Breakdown ($opt_scaling scaling)",
+              fontsize = 20, font = :bold, tellwidth = false)
 
-        # Layer 4: Variable O&M + Fuel (starts at OCC + IDC + fixed_om)
-        barplot!(ax, 1:n_reactors, variable_om_fuel_values,
-                offset = occ_values .+ idc_values .+ fixed_om_values,
-                color = component_colors["Variable O&M + Fuel"],
-                width = 0.7)
+        # Calculate max total for consistent y-axis across rows
+        max_total = maximum(occ_values .+ idc_values .+ fixed_om_values .+ variable_om_fuel_values)
 
-        # Add value labels on each segment
-        # Only show labels for segments > 5% to avoid crowding
-        for i in 1:n_reactors
-            occ = occ_values[i]
-            idc = idc_values[i]
-            fixed_om = fixed_om_values[i]
-            variable = variable_om_fuel_values[i]
-            total = occ + idc + fixed_om + variable
+        # Create axes for each row
+        for row in 1:n_rows
+            start_idx = (row - 1) * n_cols + 1
+            end_idx = min(row * n_cols, n_reactors)
+            row_indices = start_idx:end_idx
+            n_in_row = length(row_indices)
 
-            # Calculate percentages
-            occ_pct = (occ / total) * 100
-            idc_pct = (idc / total) * 100
-            fixed_om_pct = (fixed_om / total) * 100
-            variable_pct = (variable / total) * 100
+            ax = Axis(fig[row, 1],
+                     ylabel = row == 1 ? "LCOE [EUR₂₀₂₅/MWh]" : "",
+                     ylabelsize = 16,
+                     yticklabelsize = 14,
+                     xticks = (1:n_in_row, reactor_labels[row_indices]),
+                     xticklabelrotation = π/4,
+                     xticklabelsize = 14,
+                     xgridvisible = false,
+                     ygridvisible = true,
+                     ygridcolor = (:gray, 0.2),
+                     ygridstyle = :dash,
+                     aspect = nothing,
+                     autolimitaspect = nothing,
+                     tellwidth = true,
+                     tellheight = true)
 
-            # OCC label (only if > 5%)
-            if occ_pct > 5
-                text!(ax, i, occ / 2,
-                     text = "$(round(occ, digits=1))\n($(round(occ_pct, digits=1))%)",
-                     align = (:center, :center),
-                     color = :white,
-                     fontsize = 10,
-                     font = :bold)
-            end
+            # Extract data for this row
+            row_occ = occ_values[row_indices]
+            row_idc = idc_values[row_indices]
+            row_fixed_om = fixed_om_values[row_indices]
+            row_variable = variable_om_fuel_values[row_indices]
 
-            # IDC label (only if > 5%)
-            if idc_pct > 5
-                text!(ax, i, occ + idc / 2,
-                     text = "$(round(idc, digits=1))\n($(round(idc_pct, digits=1))%)",
-                     align = (:center, :center),
+            # Create stacked bars for this row
+            barplot!(ax, 1:n_in_row, row_occ, color = component_colors["OCC"], width = 0.7)
+            barplot!(ax, 1:n_in_row, row_idc, offset = row_occ, color = component_colors["IDC"], width = 0.7)
+            barplot!(ax, 1:n_in_row, row_fixed_om, offset = row_occ .+ row_idc, color = component_colors["Fixed O&M"], width = 0.7)
+            barplot!(ax, 1:n_in_row, row_variable, offset = row_occ .+ row_idc .+ row_fixed_om, color = component_colors["Variable O&M + Fuel"], width = 0.7)
+
+            # Add simplified labels - only percentage inside bars (no EUR values to reduce clutter)
+            for (local_i, global_i) in enumerate(row_indices)
+                occ = occ_values[global_i]
+                idc = idc_values[global_i]
+                fixed_om = fixed_om_values[global_i]
+                variable = variable_om_fuel_values[global_i]
+                total = occ + idc + fixed_om + variable
+
+                occ_pct = (occ / total) * 100
+                idc_pct = (idc / total) * 100
+                fixed_om_pct = (fixed_om / total) * 100
+                variable_pct = (variable / total) * 100
+
+                # Only show percentage labels if segment is large enough (>10%)
+                if occ_pct > 10
+                    text!(ax, local_i, occ / 2,
+                         text = "$(round(Int, occ_pct))%",
+                         align = (:center, :center), color = :white, fontsize = 11, font = :bold)
+                end
+                if idc_pct > 10
+                    text!(ax, local_i, occ + idc / 2,
+                         text = "$(round(Int, idc_pct))%",
+                         align = (:center, :center), color = :black, fontsize = 11, font = :bold)
+                end
+                if fixed_om_pct > 10
+                    text!(ax, local_i, occ + idc + fixed_om / 2,
+                         text = "$(round(Int, fixed_om_pct))%",
+                         align = (:center, :center), color = :black, fontsize = 11, font = :bold)
+                end
+                if variable_pct > 10
+                    text!(ax, local_i, occ + idc + fixed_om + variable / 2,
+                         text = "$(round(Int, variable_pct))%",
+                         align = (:center, :center), color = :white, fontsize = 11, font = :bold)
+                end
+
+                # Total LCOE at top with full breakdown
+                text!(ax, local_i, total + (total * 0.02),
+                     text = "$(round(total, digits=0))",
+                     align = (:center, :bottom),
                      color = :black,
-                     fontsize = 10,
+                     fontsize = 13,
                      font = :bold)
             end
 
-            # Fixed O&M label (only if > 5%)
-            if fixed_om_pct > 5
-                text!(ax, i, occ + idc + fixed_om / 2,
-                     text = "$(round(fixed_om, digits=1))\n($(round(fixed_om_pct, digits=1))%)",
-                     align = (:center, :center),
-                     color = :black,
-                     fontsize = 10,
-                     font = :bold)
-            end
-
-            # Variable O&M + Fuel label (only if > 5%)
-            if variable_pct > 5
-                text!(ax, i, occ + idc + fixed_om + variable / 2,
-                     text = "$(round(variable, digits=1))\n($(round(variable_pct, digits=1))%)",
-                     align = (:center, :center),
-                     color = :white,
-                     fontsize = 10,
-                     font = :bold)
-            end
-
-            # Total LCOE at top
-            text!(ax, i, total + (total * 0.05),
-                 text = "Total: $(round(total, digits=1))",
-                 align = (:center, :bottom),
-                 color = :black,
-                 fontsize = 11,
-                 font = :bold)
+            # Set consistent y-axis limit for this row
+            ylims!(ax, 0, max_total * 1.15)
         end
 
-        # Add legend
+        # Add legend at the bottom (after all rows)
         legend_elements = [
             PolyElement(color = component_colors["OCC"], strokewidth = 0),
             PolyElement(color = component_colors["IDC"], strokewidth = 0),
@@ -2868,18 +3178,16 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
         ]
         legend_labels = ["OCC (Overnight Construction Cost)", "IDC (Interest During Construction)", "Fixed O&M", "Variable O&M + Fuel"]
 
-        Legend(fig[2, 1],
+        Legend(fig[n_rows+1, 1],
                legend_elements,
                legend_labels,
                "LCOE Components",
                orientation = :horizontal,
                tellwidth = false,
                tellheight = true,
-               framevisible = true)
-
-        # Set y-axis limit to accommodate labels
-        max_total = maximum(occ_values .+ idc_values .+ fixed_om_values .+ variable_om_fuel_values)
-        ylims!(ax, 0, max_total * 1.15)
+               framevisible = true,
+               labelsize = 14,
+               titlesize = 16)
 
         figures[scale] = fig
     end
@@ -3150,14 +3458,18 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
     lcoe_idc_delayed = (idc_delayed * crf) / annual_generation
     lcoe_capital_delayed = lcoe_occ + lcoe_idc_delayed
 
-    # Create figure with clean academic style (matching learning curves)
-    fig = Figure(size=(1400, 700), backgroundcolor=:white)
+    # Create figure with vertically stacked layout for better readability in text
+    fig = Figure(size=(900, 1100), backgroundcolor=:white)
 
-    # Scenario 1: On-time
+    # Scenario 1: On-time (top panel)
     ax1 = Axis(fig[1,1],
-              title = "On-Time Construction\n$(base_construction_time) years",
-              ylabel = "Capital LCOE [EUR2025/MWh]",
+              title = "(a) On-Time Construction: $(base_construction_time) years",
+              titlesize = 18,
+              ylabel = "Capital LCOE [EUR₂₀₂₅/MWh]",
+              ylabelsize = 16,
               xticks = (1:3, ["OCC\n(Overnight Cost)", "IDC\n(Financing)", "Total\nCapital"]),
+              xticklabelsize = 14,
+              yticklabelsize = 14,
               xticklabelrotation = 0,
               xgridvisible = false,
               ygridvisible = true,
@@ -3168,25 +3480,29 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
     barplot!(ax1, [2], [lcoe_idc_base], offset=[lcoe_occ], color=RGBf(0.8, 0.4, 0.0), width=0.6)  # Darker orange
     barplot!(ax1, [3], [lcoe_capital_base], color=RGBf(0.0, 0.4, 0.4), width=0.6)  # Darker teal for total
 
-    # Labels
+    # Labels - increased font sizes
     text!(ax1, 1, lcoe_occ/2,
          text="$(round(lcoe_occ, digits=1))\n($(round(lcoe_occ/lcoe_capital_base*100, digits=1))%)",
-         align=(:center, :center), color=:white, fontsize=14, font=:bold)
+         align=(:center, :center), color=:white, fontsize=16, font=:bold)
     text!(ax1, 2, lcoe_occ + lcoe_idc_base/2,
          text="$(round(lcoe_idc_base, digits=1))\n($(round(lcoe_idc_base/lcoe_capital_base*100, digits=1))%)",
-         align=(:center, :center), color=:white, fontsize=14, font=:bold)
+         align=(:center, :center), color=:white, fontsize=16, font=:bold)
     text!(ax1, 3, lcoe_capital_base/2,
          text="$(round(lcoe_capital_base, digits=1))",
-         align=(:center, :center), color=:white, fontsize=16, font=:bold)
+         align=(:center, :center), color=:white, fontsize=18, font=:bold)
 
     lines!(ax1, [1.3, 1.7], [lcoe_occ, lcoe_occ], color=:gray50, linestyle=:dash, linewidth=2)
     ylims!(ax1, 0, max(lcoe_capital_base, lcoe_capital_delayed) * 1.2)
 
-    # Scenario 2: Delayed
-    ax2 = Axis(fig[1,2],
-              title = "Delayed Construction\n$(delayed_construction_time) years (+$(delayed_construction_time - base_construction_time) years delay)",
-              ylabel = "Capital LCOE [EUR2025/MWh]",
+    # Scenario 2: Delayed (bottom panel)
+    ax2 = Axis(fig[2,1],
+              title = "(b) Delayed Construction: $(delayed_construction_time) years (+$(delayed_construction_time - base_construction_time) years delay)",
+              titlesize = 18,
+              ylabel = "Capital LCOE [EUR₂₀₂₅/MWh]",
+              ylabelsize = 16,
               xticks = (1:3, ["OCC\n(Overnight Cost)", "IDC\n(Financing)", "Total\nCapital"]),
+              xticklabelsize = 14,
+              yticklabelsize = 14,
               xticklabelrotation = 0,
               xgridvisible = false,
               ygridvisible = true,
@@ -3197,23 +3513,23 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
     barplot!(ax2, [2], [lcoe_idc_delayed], offset=[lcoe_occ], color=RGBf(0.8, 0.2, 0.2), width=0.6)  # Orangered (delayed scenario)
     barplot!(ax2, [3], [lcoe_capital_delayed], color=RGBf(0.6, 0.15, 0.15), width=0.6)  # Darker red for total
 
-    # Labels
+    # Labels - increased font sizes
     text!(ax2, 1, lcoe_occ/2,
          text="$(round(lcoe_occ, digits=1))\n($(round(lcoe_occ/lcoe_capital_delayed*100, digits=1))%)",
-         align=(:center, :center), color=:white, fontsize=14, font=:bold)
+         align=(:center, :center), color=:white, fontsize=16, font=:bold)
     text!(ax2, 2, lcoe_occ + lcoe_idc_delayed/2,
          text="$(round(lcoe_idc_delayed, digits=1))\n($(round(lcoe_idc_delayed/lcoe_capital_delayed*100, digits=1))%)",
-         align=(:center, :center), color=:white, fontsize=14, font=:bold)
+         align=(:center, :center), color=:white, fontsize=16, font=:bold)
     text!(ax2, 3, lcoe_capital_delayed/2,
          text="$(round(lcoe_capital_delayed, digits=1))",
-         align=(:center, :center), color=:white, fontsize=16, font=:bold)
+         align=(:center, :center), color=:white, fontsize=18, font=:bold)
 
     lines!(ax2, [1.3, 1.7], [lcoe_occ, lcoe_occ], color=:gray50, linestyle=:dash, linewidth=2)
     ylims!(ax2, 0, max(lcoe_capital_base, lcoe_capital_delayed) * 1.2)
 
     # Overall title
-    Label(fig[0, :],
-          "Construction Delay Impact on Nuclear Capital Costs: Typical $(scale) Reactor @ $(round(wacc*100, digits=0))% WACC",
+    Label(fig[0, 1],
+          "Construction Delay Impact on Capital Costs\n$(scale) Reactor @ $(round(wacc*100, digits=0))% WACC",
           fontsize=20, font=:bold)
 
     # Impact summary
@@ -3222,9 +3538,9 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
     pct_increase = (total_increase / lcoe_capital_base) * 100
     idc_per_year = idc_increase / (delayed_construction_time - base_construction_time)
 
-    Label(fig[2, :],
-          "Impact: Each additional year of delay adds $(round(idc_per_year, digits=1)) EUR/MWh to capital LCOE → Total impact: +$(round(total_increase, digits=1)) EUR/MWh (+$(round(pct_increase, digits=1))%)",
-          fontsize=14, color=:darkred, font=:bold)
+    Label(fig[3, 1],
+          "Impact: +$(round(idc_per_year, digits=1)) EUR/MWh per year of delay\nTotal: +$(round(total_increase, digits=1)) EUR/MWh (+$(round(pct_increase, digits=1))%)",
+          fontsize=16, color=:darkred, font=:bold)
 
     # Legend (updated to match consistent color scheme)
     legend_elements = [
@@ -3233,18 +3549,19 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
         PolyElement(color=RGBf(0.8, 0.2, 0.2), strokewidth=0)   # Orangered
     ]
     legend_labels = [
-        "OCC (Overnight Construction Cost) - unchanged",
-        "IDC (Interest During Construction) - On-time scenario",
-        "IDC (Interest During Construction) - Delayed scenario"
+        "OCC (Overnight Cost)",
+        "IDC - On-time",
+        "IDC - Delayed"
     ]
 
-    Legend(fig[3, :],
+    Legend(fig[4, 1],
            legend_elements,
            legend_labels,
            orientation=:horizontal,
            tellwidth=false,
            tellheight=true,
-           framevisible=true)
+           framevisible=true,
+           labelsize=14)
 
     return fig
 end
@@ -3561,7 +3878,7 @@ function plot_lcoe_donut_standalone(pjs::Vector, scale::String, wacc_range::Vect
          text="Total LCOE\n$(round(median_total, digits=1))\nEUR2025/MWh",
          align=(:center, :center),
          color=:black,
-         fontsize=18,
+         fontsize=24,
          font=:bold)
 
     # Set axis limits
@@ -3596,13 +3913,15 @@ function plot_lcoe_donut_standalone(pjs::Vector, scale::String, wacc_range::Vect
            tellwidth=true,
            tellheight=false,
            framevisible=true,
-           labelsize=14,
-           padding=(20, 20, 20, 20))
+           labelsize=20,
+           rowgap=15,
+           patchsize=(25, 25),
+           padding=(25, 25, 25, 25))
 
-    # Add caption explaining illustrative decomposition
+    # Add caption explaining illustrative decomposition - matching legend text size
     Label(fig[2, 1],
           "Note: OCC and IDC shown as illustrative decomposition using Wealer formula: IDC = OCC × [(r/2)×T + (r²/6)×T²].\nSimulation uses DCF framework where IDC is implicit in present value calculations.",
-          fontsize=10,
+          fontsize=18,
           tellwidth=false,
           justification=:left)
 
@@ -3643,12 +3962,12 @@ function shapley_plot_single_scale(shapley_results, scale::String, pjs::Vector)
     # Sizing for readable cells with text values
     n_reactors = length(reactors_in_scale)
     n_vars = length(xticks)
-    cell_width = 120  # Wide enough for text
-    cell_height = 40
+    cell_width = 150  # Wide enough for text
+    cell_height = 60
     type_bar_width = 1  # Minimal width to eliminate empty space
 
-    fig_width = type_bar_width + (n_vars * cell_width) + 200  # Type bar + heatmap + colorbar
-    fig_height = n_reactors * cell_height + 200
+    fig_width = type_bar_width + (n_vars * cell_width) + 250  # Type bar + heatmap + colorbar
+    fig_height = n_reactors * cell_height + 250
 
     # Create figure
     fig = Figure(size = (fig_width, fig_height), backgroundcolor=:white)
@@ -3681,9 +4000,10 @@ function shapley_plot_single_scale(shapley_results, scale::String, pjs::Vector)
                       xticks = (1:length(xticks), xticks),
                       yticks = (1:length(yticks_scale), yticks_scale),
                       title = "Shapley Sensitivity Indices",
-                      titlesize = 14,
+                      titlesize = 18,
                       yaxisposition = :right,
-                      yticklabelsize = 11)
+                      yticklabelsize = 16,
+                      xticklabelsize = 14)
     ax_shapley.xticklabelrotation = π / 3
     ax_shapley.xticklabelalign = (:right, :center)
 
@@ -3700,7 +4020,7 @@ function shapley_plot_single_scale(shapley_results, scale::String, pjs::Vector)
         val = data_shapley[i, j]
         text!(ax_shapley, i, j, text = string(round(val, digits=2)),
               align = (:center, :center),
-              fontsize = 10,
+              fontsize = 14,
               color = val > 0.5 ? :white : :black)
     end
 
@@ -3715,7 +4035,7 @@ function shapley_plot_single_scale(shapley_results, scale::String, pjs::Vector)
     end
 
     # Colorbar
-    Colorbar(gl[1, 2], hm_shapley, label = "Shapley Value", labelsize = 12)
+    Colorbar(gl[1, 2], hm_shapley, label = "Shapley Value", labelsize = 16, ticklabelsize = 14)
 
     # Legend for reactor types (bottom)
     unique_types = unique(reactor_types_in_scale)
@@ -3728,7 +4048,9 @@ function shapley_plot_single_scale(shapley_results, scale::String, pjs::Vector)
            orientation = :horizontal,
            framevisible = false,
            tellwidth = false,
-           tellheight = true)
+           tellheight = true,
+           labelsize = 14,
+           titlesize = 16)
 
     return fig
 end
@@ -3772,12 +4094,12 @@ function si_plot_single_scale(si_results, scale::String, pjs::Vector)
     # Sizing: side-by-side layout needs width for two heatmaps + colorbar + legend
     n_reactors = length(reactors_in_scale)
     n_vars = length(xticks)
-    cell_width = 120  # Wider cells to show text values
-    cell_height = 40   # Adequate height for reactor names
+    cell_width = 120  # Smaller cells for better text-to-box ratio
+    cell_height = 50   # Smaller rows for better text-to-box ratio
     type_bar_width = 1  # Minimal width to eliminate empty space
 
-    fig_width = type_bar_width + 2 * (n_vars * cell_width) + 250  # Two heatmaps + colorbar + margins
-    fig_height = n_reactors * cell_height + 200  # Reactor rows + title + legend
+    fig_width = type_bar_width + 2 * (n_vars * cell_width) + 350  # Two heatmaps + colorbar + margins
+    fig_height = n_reactors * cell_height + 280  # Reactor rows + title + legend
 
     # Create figure with side-by-side layout
     fig = Figure(size = (fig_width, fig_height), backgroundcolor=:white)
@@ -3810,7 +4132,8 @@ function si_plot_single_scale(si_results, scale::String, pjs::Vector)
                 xticks = (1:length(xticks), xticks),
                 yticks = (1:length(yticks_scale), fill("", n_reactors)),  # Empty labels (shown on left)
                 title = "First-order Effect",
-                titlesize = 14)
+                titlesize = 18,
+                xticklabelsize = 14)
     ax_s.xticklabelrotation = π / 3
     ax_s.xticklabelalign = (:right, :center)
     ax_s.yticklabelsvisible = false
@@ -3827,7 +4150,8 @@ function si_plot_single_scale(si_results, scale::String, pjs::Vector)
         val = data_s[i, j]
         text!(ax_s, i, j, text = string(round(val, digits=2)),
               align = (:center, :center),
-              fontsize = 10,
+              fontsize = 16,
+              font = :bold,
               color = val > 0.5 ? :white : :black)
     end
 
@@ -3846,11 +4170,12 @@ function si_plot_single_scale(si_results, scale::String, pjs::Vector)
                  xticks = (1:length(xticks), xticks),
                  yticks = (1:length(yticks_scale), yticks_scale),  # Show labels on right
                  title = "Total-order Effect",
-                 titlesize = 14,
+                 titlesize = 18,
+                 xticklabelsize = 14,
                  yaxisposition = :right)
     ax_st.xticklabelrotation = π / 3
     ax_st.xticklabelalign = (:right, :center)
-    ax_st.yticklabelsize = 11
+    ax_st.yticklabelsize = 16
 
     # Draw ST heatmap
     hm_st = heatmap!(ax_st, 1:length(xticks), 1:length(yticks_scale), data_st,
@@ -3861,12 +4186,13 @@ function si_plot_single_scale(si_results, scale::String, pjs::Vector)
         val = data_st[i, j]
         text!(ax_st, i, j, text = string(round(val, digits=2)),
               align = (:center, :center),
-              fontsize = 10,
+              fontsize = 16,
+              font = :bold,
               color = val > 0.5 ? :white : :black)
     end
 
     # Shared colorbar
-    Colorbar(gl[1, 3], hm_s, label = "Sensitivity Index", labelsize = 12)
+    Colorbar(gl[1, 3], hm_s, label = "Sensitivity Index", labelsize = 16, ticklabelsize = 14)
 
     # Legend for reactor types (bottom)
     unique_types = unique(reactor_types_in_scale)
@@ -3879,7 +4205,9 @@ function si_plot_single_scale(si_results, scale::String, pjs::Vector)
            orientation = :horizontal,
            framevisible = false,
            tellwidth = false,
-           tellheight = true)
+           tellheight = true,
+           labelsize = 14,
+           titlesize = 16)
 
     return fig
 end
@@ -4196,36 +4524,43 @@ function plot_wacc_sensitivity_with_ci(pjs::Vector,
 end
 
 """
-    calculate_vendor_baseline_lcoe_simple(pj, wacc_mean, construction_time_mean)
+    calculate_vendor_baseline_lcoe_simple(pj, wacc_optimistic, construction_time_optimistic)
 
-Calculate vendor's claimed LCOE using their stated OCC and typical operating parameters.
+Calculate vendor's claimed LCOE using their stated OCC and OPTIMISTIC operating parameters.
 This represents the LCOE at the manufacturer's claimed costs (N=1, no learning applied).
+
+Uses optimistic assumptions to represent vendor's claimed competitiveness:
+- Vendor-specified OCC (from manufacturer data)
+- Fixed construction time at 3 years OR planned time (no delays)
+- WACC at 7% (favorable financing conditions)
+- Optimistic load factor (upper end of range)
 
 # Arguments
 - `pj::project`: Project object with reactor specifications
-- `wacc_mean::Float64`: Mean discount rate
-- `construction_time_mean::Int`: Mean construction time in years
+- `wacc_optimistic::Float64`: Optimistic discount rate (default 0.07 = 7%)
+- `construction_time_optimistic::Int`: Optimistic construction time (default 3 years)
 
 # Returns
 - `vendor_baseline_lcoe::Float64`: LCOE at manufacturer's claimed costs
 """
-function calculate_vendor_baseline_lcoe_simple(pj::project, wacc_mean::Float64,
-                                               construction_time_mean::Int)
+function calculate_vendor_baseline_lcoe_simple(pj::project,
+                                               wacc_optimistic::Float64=0.07,
+                                               construction_time_optimistic::Int=3)
     # Use manufacturer OCC (no learning factor applied)
     occ = pj.investment * pj.plant_capacity  # EUR
 
-    # Operating parameters
-    loadfactor = mean(pj.loadfactor)
+    # Operating parameters (optimistic - use upper end of load factor range)
+    loadfactor = maximum(pj.loadfactor)  # Optimistic load factor
     annual_generation = pj.plant_capacity * loadfactor * 8760  # MWh/year
     lifetime = pj.time[2]
 
     # Capital Recovery Factor
-    crf = wacc_mean * (1 + wacc_mean)^lifetime / ((1 + wacc_mean)^lifetime - 1)
+    crf = wacc_optimistic * (1 + wacc_optimistic)^lifetime / ((1 + wacc_optimistic)^lifetime - 1)
 
     # LCOE components
     # Capital (including IDC using explicit formula for vendor baseline)
-    idc_factor = (wacc_mean/2) * construction_time_mean +
-                 (wacc_mean^2/6) * construction_time_mean^2
+    idc_factor = (wacc_optimistic/2) * construction_time_optimistic +
+                 (wacc_optimistic^2/6) * construction_time_optimistic^2
     tcc = occ * (1 + idc_factor)
     lcoe_capital = (tcc * crf) / annual_generation
 
@@ -4273,12 +4608,14 @@ function learning_curve_single_reactor(pj::project, wacc_range::Vector,
     n_sim = 10000  # MC samples per learning scenario
     N_values = 1:N_max
 
-    # Calculate vendor baseline (N=1, manufacturer OCC)
-    wacc_mean = mean(wacc_range)
-    ct_mean = isnothing(construction_time_range) ? pj.time[1] : mean(construction_time_range)
-    vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, wacc_mean, ct_mean)
+    # Calculate vendor baseline using OPTIMISTIC assumptions:
+    # - WACC = 7% (favorable financing)
+    # - Construction time = 3 years (or planned time, no delays)
+    # - Optimistic load factor (upper end of range)
+    vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, 0.07, 3)
 
-    @info "  Vendor baseline LCOE: $(round(vendor_baseline, digits=1)) EUR/MWh"
+    @info "  Vendor baseline LCOE (optimistic): $(round(vendor_baseline, digits=1)) EUR/MWh"
+    @info "    (WACC=7%, construction=3yrs, load factor=$(round(maximum(pj.loadfactor), digits=2)))"
 
     # Determine learning type based on scale
     learning_type = pj.scale == "Large" ? "deployment" : "factory"
@@ -4466,10 +4803,8 @@ function learning_curves_grid_appendix(pjs::Vector, wacc_range::Vector,
 
             @info "  Processing $(pj.name) ($(idx)/$(n_reactors))"
 
-            # Calculate vendor baseline
-            wacc_mean = mean(wacc_range)
-            ct_mean = mean(construction_time_ranges[pj.scale])
-            vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, wacc_mean, ct_mean)
+            # Calculate vendor baseline using OPTIMISTIC assumptions
+            vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, 0.07, 3)
 
             # Run learning simulation
             n_sim = 10000
