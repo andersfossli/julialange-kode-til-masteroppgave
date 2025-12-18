@@ -430,9 +430,8 @@ function lcoe_scale_histogram(lcoe_results::DataFrame, pjs::Vector)
         ax.xgridcolor = (:black, 0.1)
         ax.ygridcolor = (:black, 0.1)
 
-        # Add legend (position depends on scale to avoid overlap)
-        legend_pos = scale == "Large" ? :lt : :rt
-        axislegend(ax, position = legend_pos, framevisible = true,
+        # Add legend - always use right-top to avoid overlapping with data
+        axislegend(ax, position = :rt, framevisible = true,
                    labelsize = 11, bgcolor = (:white, 0.9))
     end
 
@@ -555,8 +554,8 @@ function lcoe_scale_histogram_single(lcoe_results::DataFrame, pjs::Vector, scale
     ax.xgridcolor = (:black, 0.1)
     ax.ygridcolor = (:black, 0.1)
 
-    # Add legend
-    legend_pos = scale == "Large" ? :lt : :rt
+    # Add legend - always use right-top to avoid overlapping with data
+    legend_pos = :rt
     axislegend(ax, position = legend_pos, framevisible = true,
                labelsize = 11, bgcolor = (:white, 0.9))
 
@@ -3081,7 +3080,7 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
 
         # Title at top
         Label(fig[0, 1], "$scale Reactors: LCOE Component Breakdown ($opt_scaling scaling)",
-              fontsize = 20, font = :bold, tellwidth = false)
+              fontsize = 24, font = :bold, tellwidth = false)
 
         # Calculate max total for consistent y-axis across rows
         max_total = maximum(occ_values .+ idc_values .+ fixed_om_values .+ variable_om_fuel_values)
@@ -3095,11 +3094,11 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
 
             ax = Axis(fig[row, 1],
                      ylabel = row == 1 ? "LCOE [EUR₂₀₂₅/MWh]" : "",
-                     ylabelsize = 16,
-                     yticklabelsize = 14,
+                     ylabelsize = 20,
+                     yticklabelsize = 16,
                      xticks = (1:n_in_row, reactor_labels[row_indices]),
                      xticklabelrotation = π/4,
-                     xticklabelsize = 14,
+                     xticklabelsize = 16,
                      xgridvisible = false,
                      ygridvisible = true,
                      ygridcolor = (:gray, 0.2),
@@ -3138,22 +3137,22 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
                 if occ_pct > 10
                     text!(ax, local_i, occ / 2,
                          text = "$(round(Int, occ_pct))%",
-                         align = (:center, :center), color = :white, fontsize = 11, font = :bold)
+                         align = (:center, :center), color = :white, fontsize = 14, font = :bold)
                 end
                 if idc_pct > 10
                     text!(ax, local_i, occ + idc / 2,
                          text = "$(round(Int, idc_pct))%",
-                         align = (:center, :center), color = :black, fontsize = 11, font = :bold)
+                         align = (:center, :center), color = :black, fontsize = 14, font = :bold)
                 end
                 if fixed_om_pct > 10
                     text!(ax, local_i, occ + idc + fixed_om / 2,
                          text = "$(round(Int, fixed_om_pct))%",
-                         align = (:center, :center), color = :black, fontsize = 11, font = :bold)
+                         align = (:center, :center), color = :black, fontsize = 14, font = :bold)
                 end
                 if variable_pct > 10
                     text!(ax, local_i, occ + idc + fixed_om + variable / 2,
                          text = "$(round(Int, variable_pct))%",
-                         align = (:center, :center), color = :white, fontsize = 11, font = :bold)
+                         align = (:center, :center), color = :white, fontsize = 14, font = :bold)
                 end
 
                 # Total LCOE at top with full breakdown
@@ -3161,7 +3160,7 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
                      text = "$(round(total, digits=0))",
                      align = (:center, :bottom),
                      color = :black,
-                     fontsize = 13,
+                     fontsize = 16,
                      font = :bold)
             end
 
@@ -3186,8 +3185,10 @@ function plot_lcoe_breakdown_by_scale(pjs::Vector, all_breakdown_results::Dict, 
                tellwidth = false,
                tellheight = true,
                framevisible = true,
-               labelsize = 14,
-               titlesize = 16)
+               labelsize = 18,
+               titlesize = 20,
+               patchsize = (25, 25),
+               padding = (15, 15, 10, 10))
 
         figures[scale] = fig
     end
@@ -3371,9 +3372,12 @@ Shows average OCC for SMR/Large/Micro reactors and IDC under on-time vs delayed 
 """
 function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
                             base_construction_time::Int, delayed_construction_time::Int,
-                            opt_scaling::String)
+                            opt_scaling::String;
+                            wacc_range::Vector=[0.03, 0.10],
+                            electricity_price_mean::Float64=50.0,
+                            construction_time_range::Vector{Int}=[3, 10])
 
-    # FIXED: Use BWRX-300 only to match standalone donut and aggregate breakdown
+    # Use BWRX-300 only to match standalone donut and aggregate breakdown
     scale_reactors = filter(p -> p.name == "BWRX-300", pjs)
 
     if isempty(scale_reactors)
@@ -3381,82 +3385,71 @@ function plot_idc_aggregate(pjs::Vector, scale::String, wacc::Float64,
         return nothing
     end
 
+    p = scale_reactors[1]  # BWRX-300
+
     @info "Creating IDC sensitivity for BWRX-300 (using $opt_scaling scaling)"
+    @info "  Using same simulation pipeline as donut/breakdown for consistent OCC"
 
-    # Calculate SCALED investment for each reactor (matching simulation methodology)
-    scaling_range = [0.4, 0.7]  # Beta scaling range
-    soak_factor = 1.0  # No SOAK discount
+    # ===== CONSISTENT WITH DONUT/BREAKDOWN PIPELINE =====
+    # Run simulation to get capital costs (same as donut plot)
+    n = 100_000  # Smaller sample for speed, still accurate for median
+    all_capital = Float64[]
+    all_wacc = Float64[]
+    all_construction_time = Int[]
 
-    scaled_investments = Float64[]
-    capacities = Float64[]
-    loadfactors = Float64[]
-    lifetimes = Int[]
+    rand_vars = gen_rand_vars(opt_scaling, n, wacc_range, electricity_price_mean, p;
+                              construction_time_range=construction_time_range)
+    disc_res = mc_run(n, p, rand_vars)
+    res = npv_lcoe(disc_res, decompose=true)
 
-    for p in scale_reactors
-        # Apply same scaling as gen_rand_vars - use median scaling factor
-        median_scaling_exp = mean(scaling_range)
+    # Collect capital cost and parameters for OCC/IDC decomposition
+    append!(all_capital, res.lcoe_capital)
+    append!(all_wacc, rand_vars.wacc)
+    append!(all_construction_time, rand_vars.construction_time)
 
-        if opt_scaling == "rothwell"
-            # Rothwell: exponent is (1 + β - 1) = β
-            scaling_factor = median_scaling_exp
-            scaled_occ = p.reference_pj[1] * p.reference_pj[2] * soak_factor *
-                        (p.plant_capacity / p.reference_pj[2])^scaling_factor
-        elseif opt_scaling == "roulstone"
-            # Roulstone: use 2^(β-1) as the exponent
-            scaling_exponent = 2^(median_scaling_exp - 1)
-            scaled_occ = p.reference_pj[1] * p.reference_pj[2] * soak_factor *
-                        (p.plant_capacity / p.reference_pj[2])^scaling_exponent
-        else
-            # Fallback to manufacturer
-            @warn "Using manufacturer OCC (no scaling applied)"
-            scaled_occ = p.investment * p.plant_capacity * 1000  # EUR/kW × MW × 1000
-        end
+    # Decompose capital into OCC and IDC using Wealer formula (same as donut)
+    occ_illustrative, idc_illustrative = decompose_capital_to_occ_idc(
+        all_capital, all_wacc, all_construction_time
+    )
 
-        push!(scaled_investments, scaled_occ)
-        push!(capacities, p.plant_capacity)
-        push!(loadfactors, mean(p.loadfactor))
-        push!(lifetimes, p.time[2])
-    end
+    # OCC0 = median illustrative OCC (this is our "OCC held constant" baseline)
+    # This matches the donut/breakdown OCC value
+    lcoe_occ = median(occ_illustrative)
 
-    # Get BWRX-300 values (single reactor, but keep mean() for code compatibility)
-    occ = mean(scaled_investments)  # EUR (BWRX-300 scaled OCC)
-    avg_capacity = mean(capacities)  # MW
-    avg_loadfactor = mean(loadfactors)
-    avg_lifetime = Int(mean(lifetimes))  # Years
+    @info "  Median OCC (from simulation): $(round(lcoe_occ, digits=1)) EUR/MWh"
+    @info "  Median IDC (from simulation): $(round(median(idc_illustrative), digits=1)) EUR/MWh"
 
-    @info "  BWRX-300 SCALED OCC: $(round(occ/1e6, digits=1)) million EUR"
-    @info "  Capacity: $(round(avg_capacity, digits=0)) MW"
-    @info "  Load factor: $(round(avg_loadfactor, digits=2))"
+    # ===== IDC SENSITIVITY CALCULATION =====
+    # IDC factor formula (same as decompose_capital_to_occ_idc)
+    idc_factor(T, r) = (r/2) * T + (r^2/6) * T^2
 
-    # Calculate IDC using explicit formula
-    # IDC = OCC × [(r/2)×T_con + (r²/6)×T_con²]
-    function calculate_idc(t_con, r, occ)
-        idc_factor = (r/2) * t_con + (r^2/6) * t_con^2
-        return occ * idc_factor
-    end
-
-    # Scenario 1: On-time
-    idc_base = calculate_idc(base_construction_time, wacc, occ)
-    total_base = occ + idc_base
-
-    # Scenario 2: Delayed
-    idc_delayed = calculate_idc(delayed_construction_time, wacc, occ)
-    total_delayed = occ + idc_delayed
-
-    @info "  On-time IDC: $(round(idc_base/1e6, digits=1)) million EUR ($(round(idc_base/total_base*100, digits=1))%)"
-    @info "  Delayed IDC: $(round(idc_delayed/1e6, digits=1)) million EUR ($(round(idc_delayed/total_delayed*100, digits=1))%)"
-
-    # Calculate LCOE components
+    # For sensitivity analysis, we need OCC in EUR (not EUR/MWh)
+    # Back-calculate from LCOE using CRF and annual generation
+    avg_capacity = p.plant_capacity
+    avg_loadfactor = mean(p.loadfactor)
+    avg_lifetime = p.time[2]
     annual_generation = avg_capacity * avg_loadfactor * 8760  # MWh/year
     crf = wacc * (1 + wacc)^avg_lifetime / ((1 + wacc)^avg_lifetime - 1)
 
-    # LCOE [EUR/MWh]
-    lcoe_occ = (occ * crf) / annual_generation
-    lcoe_idc_base = (idc_base * crf) / annual_generation
-    lcoe_capital_base = lcoe_occ + lcoe_idc_base
+    # OCC in EUR = lcoe_occ × annual_generation / crf
+    occ_eur = lcoe_occ * annual_generation / crf
 
-    lcoe_idc_delayed = (idc_delayed * crf) / annual_generation
+    @info "  Back-calculated OCC: $(round(occ_eur/1e6, digits=1)) million EUR"
+
+    # Calculate IDC in EUR for base and delayed scenarios
+    idc_base_eur = occ_eur * idc_factor(base_construction_time, wacc)
+    idc_delayed_eur = occ_eur * idc_factor(delayed_construction_time, wacc)
+
+    # Convert IDC back to EUR/MWh
+    lcoe_idc_base = (idc_base_eur * crf) / annual_generation
+    lcoe_idc_delayed = (idc_delayed_eur * crf) / annual_generation
+
+    # Total capital LCOE for each scenario
+    lcoe_capital_base = lcoe_occ + lcoe_idc_base
     lcoe_capital_delayed = lcoe_occ + lcoe_idc_delayed
+
+    @info "  On-time ($(base_construction_time)yr): OCC=$(round(lcoe_occ, digits=1)), IDC=$(round(lcoe_idc_base, digits=1)), Total=$(round(lcoe_capital_base, digits=1)) EUR/MWh"
+    @info "  Delayed ($(delayed_construction_time)yr): OCC=$(round(lcoe_occ, digits=1)), IDC=$(round(lcoe_idc_delayed, digits=1)), Total=$(round(lcoe_capital_delayed, digits=1)) EUR/MWh"
 
     # Create figure with vertically stacked layout for better readability in text
     fig = Figure(size=(900, 1100), backgroundcolor=:white)
@@ -4979,4 +4972,185 @@ function learning_curves_grid_appendix(pjs::Vector, wacc_range::Vector,
            labelsize = 10)
 
     return fig, crossing_data
+end
+
+"""
+    learning_curves_pairs_appendix(pjs, wacc_range, electricity_price_mean, opt_scaling, construction_time_ranges)
+
+Create multiple 2x1 (side-by-side) learning curve figures for appendix.
+Instead of one large 2x5 grid, generates 5 separate figures with 2 reactors each.
+
+# Arguments
+- `pjs::Vector{project}`: Vector of reactor projects (will be processed in pairs)
+- `wacc_range::Vector`: [min, max] WACC range
+- `electricity_price_mean::Float64`: Mean electricity price for reference
+- `opt_scaling::String`: Scaling method ("roulstone" or "rothwell")
+- `construction_time_ranges::Dict`: Construction time ranges by scale
+
+# Returns
+- `figures::Vector{Figure}`: Vector of figures, each with 2 reactors side-by-side
+- `crossing_data::DataFrame`: Crossing point data for all reactors
+"""
+function learning_curves_pairs_appendix(pjs::Vector, wacc_range::Vector,
+                                       electricity_price_mean::Float64,
+                                       opt_scaling::String,
+                                       construction_time_ranges::Dict)
+
+    @info "Creating learning curves as paired figures (2x1 layout per figure)"
+
+    n_reactors = length(pjs)
+    n_pairs = ceil(Int, n_reactors / 2)
+
+    figures = Figure[]
+    crossing_data = DataFrame(
+        Reactor = String[],
+        VendorBaseline = Float64[],
+        CrossingN = Union{Int, Missing}[],
+        CrossingLCOE = Union{Float64, Missing}[]
+    )
+
+    # Colors and styles (defined once for consistency)
+    lr_colors = Dict(
+        0.05 => RGBf(0.7, 0.7, 0.7),
+        0.10 => RGBf(0.2, 0.4, 0.8),
+        0.15 => RGBf(0.3, 0.7, 0.3)
+    )
+
+    lr_styles = Dict(
+        0.05 => :dash,
+        0.10 => :solid,
+        0.15 => :dot
+    )
+
+    for pair_idx in 1:n_pairs
+        # Get reactors for this pair
+        start_idx = (pair_idx - 1) * 2 + 1
+        end_idx = min(start_idx + 1, n_reactors)
+        pair_pjs = pjs[start_idx:end_idx]
+
+        @info "  Creating figure $(pair_idx)/$(n_pairs) with $(length(pair_pjs)) reactor(s)"
+
+        # Create figure for this pair - wider format for 2 side-by-side plots
+        fig = Figure(size=(1100, 500), backgroundcolor=:white)
+
+        for (col, pj) in enumerate(pair_pjs)
+            @info "    Processing $(pj.name)"
+
+            # Calculate vendor baseline using OPTIMISTIC assumptions
+            vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, 0.07, 3)
+
+            # Run learning simulation
+            n_sim = 10000
+            N_max = 30
+            learning_rates = [0.05, 0.10, 0.15]
+            N_values = 1:N_max
+
+            results = Dict{Float64, Vector{Float64}}()
+
+            for LR in learning_rates
+                lcoe_trajectory = Float64[]
+
+                for N in N_values
+                    rand_vars = gen_rand_vars(opt_scaling, n_sim, wacc_range,
+                                             electricity_price_mean, pj;
+                                             apply_learning=true,
+                                             N_unit=N,
+                                             LR=LR,
+                                             kappa=1.0,
+                                             apply_soak_discount=false,
+                                             construction_time_range=construction_time_ranges[pj.scale],
+                                             quiet=true)
+
+                    disc_res = mc_run(n_sim, pj, rand_vars)
+                    res = npv_lcoe(disc_res, decompose=false)
+
+                    push!(lcoe_trajectory, median(res.lcoe))
+                end
+
+                results[LR] = lcoe_trajectory
+            end
+
+            # Create subplot - row 1 for plot, col for position
+            ax = Axis(fig[1, col],
+                     xlabel = "Cumulative Units (N)",
+                     ylabel = col == 1 ? "LCOE [EUR₂₀₂₅/MWh]" : "",
+                     title = "$(pj.name) ($(pj.type))",
+                     titlesize = 18,
+                     titlefont = :bold,
+                     xlabelsize = 14,
+                     ylabelsize = 14,
+                     xticklabelsize = 12,
+                     yticklabelsize = 12)
+
+            # Plot curves
+            for LR in learning_rates
+                lines!(ax, collect(N_values), results[LR],
+                       color = lr_colors[LR],
+                       linestyle = lr_styles[LR],
+                       linewidth = 2.5)
+            end
+
+            # Vendor baseline
+            hlines!(ax, [vendor_baseline],
+                    color = :red,
+                    linestyle = :dashdot,
+                    linewidth = 2.5)
+
+            # Find crossing for base case (LR=10%)
+            base_trajectory = results[0.10]
+            crossing_idx = findfirst(x -> x <= vendor_baseline, base_trajectory)
+
+            if !isnothing(crossing_idx)
+                crossing_n = N_values[crossing_idx]
+                crossing_lcoe = base_trajectory[crossing_idx]
+
+                scatter!(ax, [crossing_n], [crossing_lcoe],
+                        color = :red,
+                        markersize = 12,
+                        marker = :star5)
+
+                text!(ax, crossing_n + 1, crossing_lcoe,
+                      text = "N=$(crossing_n)",
+                      align = (:left, :center),
+                      fontsize = 12,
+                      color = :red,
+                      font = :bold)
+
+                push!(crossing_data, (pj.name, vendor_baseline, crossing_n, crossing_lcoe))
+            else
+                push!(crossing_data, (pj.name, vendor_baseline, missing, missing))
+            end
+        end
+
+        # Add shared legend at bottom
+        legend_elements = [
+            LineElement(color = lr_colors[0.05], linestyle = lr_styles[0.05], linewidth = 2.5),
+            LineElement(color = lr_colors[0.10], linestyle = lr_styles[0.10], linewidth = 2.5),
+            LineElement(color = lr_colors[0.15], linestyle = lr_styles[0.15], linewidth = 2.5),
+            LineElement(color = :red, linestyle = :dashdot, linewidth = 2.5)
+        ]
+
+        legend_labels = [
+            "LR 5% (Pessimistic)",
+            "LR 10% (Base)",
+            "LR 15% (Optimistic)",
+            "Vendor Baseline"
+        ]
+
+        Legend(fig[2, :],
+               legend_elements,
+               legend_labels,
+               orientation = :horizontal,
+               tellwidth = false,
+               tellheight = true,
+               framevisible = true,
+               labelsize = 14,
+               patchsize = (25, 10))
+
+        push!(figures, fig)
+    end
+
+    @info "Created $(length(figures)) paired learning curve figures"
+
+    return figures, crossing_data
 end
