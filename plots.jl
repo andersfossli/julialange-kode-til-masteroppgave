@@ -821,6 +821,7 @@ CSV.write("$outputpath/summary_by_region.csv", region_data)
 # Define simulation parameters for plotting functions
 wacc = [0.04, 0.10]  # WACC range used in simulations
 electricity_price_mean = mean([52.2, 95.8])  # Mean electricity price
+scaling = [0.4, 0.7]  # Scaling parameter range (needed for gen_rand_vars)
 
 # PLOT 1: LCOE Comparison Horizontal Bar Chart
 @info("Generating LCOE comparison horizontal bar chart...")
@@ -844,30 +845,27 @@ else
     @warn("Skipping Shapley heatmap (Shapley results not available)")
 end
 
-# PLOT 3: Learning Curves - Separate plots for each scale
-@info("Generating learning curves for all scales...")
+# PLOT 3: Learning Curves - Micro and SMR only (Large reactors excluded - no learning curve analysis)
+@info("Generating learning curves for Micro and SMR scales...")
 
-# Create separate learning curve plots for each scale
-large_reactors = [pj for pj in pjs if pj.scale == "Large"]
+# Create separate learning curve plots for each scale (paired 2x1 figures)
 micro_reactors = [pj for pj in pjs if pj.scale == "Micro"]
 smr_reactors_only = [pj for pj in pjs if pj.scale == "SMR"]
 
-if !isempty(large_reactors)
-    fig_learning_large = learning_curves_smr(large_reactors, wacc, electricity_price_mean, opt_scaling, outputpath)
-    save("$outputpath/fig-learning_curves_large-$opt_scaling.pdf", fig_learning_large)
-    @info("✓ Saved: fig-learning_curves_large-$opt_scaling.pdf")
-end
-
 if !isempty(micro_reactors)
-    fig_learning_micro = learning_curves_smr(micro_reactors, wacc, electricity_price_mean, opt_scaling, outputpath)
-    save("$outputpath/fig-learning_curves_micro-$opt_scaling.pdf", fig_learning_micro)
-    @info("✓ Saved: fig-learning_curves_micro-$opt_scaling.pdf")
+    micro_figures, _ = Base.invokelatest(learning_curves_pairs_appendix, micro_reactors, wacc, electricity_price_mean, opt_scaling, outputpath)
+    for (i, fig) in enumerate(micro_figures)
+        save("$outputpath/fig-learning_curves_micro_$(i)-$opt_scaling.pdf", fig)
+        @info("✓ Saved: fig-learning_curves_micro_$(i)-$opt_scaling.pdf")
+    end
 end
 
 if !isempty(smr_reactors_only)
-    fig_learning_smr = learning_curves_smr(smr_reactors_only, wacc, electricity_price_mean, opt_scaling, outputpath)
-    save("$outputpath/fig-learning_curves_smr-$opt_scaling.pdf", fig_learning_smr)
-    @info("✓ Saved: fig-learning_curves_smr-$opt_scaling.pdf")
+    smr_figures, _ = Base.invokelatest(learning_curves_pairs_appendix, smr_reactors_only, wacc, electricity_price_mean, opt_scaling, outputpath)
+    for (i, fig) in enumerate(smr_figures)
+        save("$outputpath/fig-learning_curves_smr_$(i)-$opt_scaling.pdf", fig)
+        @info("✓ Saved: fig-learning_curves_smr_$(i)-$opt_scaling.pdf")
+    end
 end
 
 # PLOT 3b: Standalone UK-SMR (RR) learning curve for thesis main text
@@ -889,6 +887,18 @@ for (scale, fig) in threshold_figures
     save(filename, fig)
     @info("✓ Saved: fig-threshold_probability_$(lowercase(scale))-$opt_scaling.pdf")
 end
+
+# PLOT 5: Reactor Types Operating (bar chart)
+@info("Generating reactor types operating bar chart...")
+fig_reactor_types = plot_reactor_types_operating(inputpath)
+save("$outputpath/fig-reactor_types_operating.pdf", fig_reactor_types)
+@info("✓ Saved: fig-reactor_types_operating.pdf")
+
+# PLOT 6: Uranium Prices over Time (line chart)
+@info("Generating uranium prices line chart...")
+fig_uranium_prices = plot_uranium_prices(inputpath)
+save("$outputpath/fig-uranium_prices.pdf", fig_uranium_prices)
+@info("✓ Saved: fig-uranium_prices.pdf")
 
 @info("")
 @info("="^80)

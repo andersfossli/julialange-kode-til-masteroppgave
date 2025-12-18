@@ -4813,7 +4813,7 @@ function learning_curves_grid_appendix(pjs::Vector, wacc_range::Vector,
                 lcoe_trajectory = Float64[]
 
                 for N in N_values
-                    rand_vars = gen_rand_vars(opt_scaling, n_sim, wacc_range,
+                    rand_vars = Base.invokelatest(gen_rand_vars, opt_scaling, n_sim, wacc_range,
                                              electricity_price_mean, pj;
                                              apply_learning=true,
                                              N_unit=N,
@@ -4823,8 +4823,8 @@ function learning_curves_grid_appendix(pjs::Vector, wacc_range::Vector,
                                              construction_time_range=construction_time_ranges[pj.scale],
                                              quiet=true)
 
-                    disc_res = mc_run(n_sim, pj, rand_vars)
-                    res = npv_lcoe(disc_res, decompose=false)
+                    disc_res = Base.invokelatest(mc_run, n_sim, pj, rand_vars)
+                    res = Base.invokelatest(npv_lcoe, disc_res, decompose=false)
 
                     push!(lcoe_trajectory, median(res.lcoe))
                 end
@@ -4975,26 +4975,27 @@ function learning_curves_grid_appendix(pjs::Vector, wacc_range::Vector,
 end
 
 """
-    learning_curves_pairs_appendix(pjs, wacc_range, electricity_price_mean, opt_scaling, construction_time_ranges)
+    learning_curves_pairs_appendix(pjs, wacc_range, electricity_price_mean, opt_scaling, outputpath)
 
 Create multiple 2x1 (side-by-side) learning curve figures for appendix.
-Instead of one large 2x5 grid, generates 5 separate figures with 2 reactors each.
+Instead of one large 2x5 grid, generates separate figures with 2 reactors each.
+Uses Wright's Law formula directly (fast) instead of Monte Carlo simulations.
 
 # Arguments
 - `pjs::Vector{project}`: Vector of reactor projects (will be processed in pairs)
 - `wacc_range::Vector`: [min, max] WACC range
 - `electricity_price_mean::Float64`: Mean electricity price for reference
 - `opt_scaling::String`: Scaling method ("roulstone" or "rothwell")
-- `construction_time_ranges::Dict`: Construction time ranges by scale
+- `outputpath::String`: Output directory (used to load baseline LCOE data)
 
 # Returns
 - `figures::Vector{Figure}`: Vector of figures, each with 2 reactors side-by-side
-- `crossing_data::DataFrame`: Crossing point data for all reactors
+- `crossing_data::DataFrame`: Data on where curves cross vendor baseline
 """
 function learning_curves_pairs_appendix(pjs::Vector, wacc_range::Vector,
                                        electricity_price_mean::Float64,
                                        opt_scaling::String,
-                                       construction_time_ranges::Dict)
+                                       outputpath::String)
 
     @info "Creating learning curves as paired figures (2x1 layout per figure)"
 
@@ -5009,7 +5010,11 @@ function learning_curves_pairs_appendix(pjs::Vector, wacc_range::Vector,
         CrossingLCOE = Union{Float64, Missing}[]
     )
 
-    # Colors and styles (defined once for consistency)
+    # Learning parameters (same as learning_curves_smr)
+    N_values = [1, 2, 4, 6, 8, 12, 16, 20, 24, 30]
+    learning_rates = [0.05, 0.10, 0.15]
+
+    # Colors and styles
     lr_colors = Dict(
         0.05 => RGBf(0.7, 0.7, 0.7),
         0.10 => RGBf(0.2, 0.4, 0.8),
@@ -5022,6 +5027,40 @@ function learning_curves_pairs_appendix(pjs::Vector, wacc_range::Vector,
         0.15 => :dot
     )
 
+    lr_linewidths = Dict(0.05 => 2.0, 0.10 => 3.5, 0.15 => 2.0)
+    lr_labels = Dict(0.05 => "LR 5%", 0.10 => "LR 10% (Base)", 0.15 => "LR 15%")
+
+    # Load baseline LCOE data from CSV (FOAK values)
+    baseline_file = "$outputpath/mcs-lcoe_summary-$opt_scaling.csv"
+    baseline_lcoe = Dict{String, Float64}()
+    baseline_std = Dict{String, Float64}()
+
+    if isfile(baseline_file)
+        summary_data = CSV.read(baseline_file, DataFrame)
+        for pj in pjs
+            if "variable" in names(summary_data)
+                idx = findfirst(==(pj.name), summary_data.variable)
+                if !isnothing(idx)
+                    if "median" in names(summary_data)
+                        baseline_lcoe[pj.name] = summary_data[idx, "median"]
+                    end
+                    if "std" in names(summary_data)
+                        baseline_std[pj.name] = summary_data[idx, "std"]
+                    end
+                end
+            end
+        end
+    end
+
+    # Reactor type colors
+    reactor_type_colors = Dict(
+        "BWR" => RGBf(0.8, 0.4, 0.0),
+        "PWR" => RGBf(0.8, 0.4, 0.0),
+        "HTR" => RGBf(0.7, 0.6, 0.0),
+        "SFR" => RGBf(0.0, 0.5, 0.5),
+        "MSR" => RGBf(0.5, 0.5, 0.5)
+    )
+
     for pair_idx in 1:n_pairs
         # Get reactors for this pair
         start_idx = (pair_idx - 1) * 2 + 1
@@ -5030,122 +5069,102 @@ function learning_curves_pairs_appendix(pjs::Vector, wacc_range::Vector,
 
         @info "  Creating figure $(pair_idx)/$(n_pairs) with $(length(pair_pjs)) reactor(s)"
 
-        # Create figure for this pair - wider format for 2 side-by-side plots
-        fig = Figure(size=(1100, 500), backgroundcolor=:white)
+        # Create figure for this pair
+        fig = Figure(size=(1000, 450), backgroundcolor=:white)
 
         for (col, pj) in enumerate(pair_pjs)
-            @info "    Processing $(pj.name)"
+            # Get baseline FOAK LCOE
+            foak_lcoe = get(baseline_lcoe, pj.name, 100.0)
+            foak_std = get(baseline_std, pj.name, 20.0)
+
+            # Get reactor color
+            reactor_color = get(reactor_type_colors, pj.type, :gray)
 
             # Calculate vendor baseline using OPTIMISTIC assumptions
             vendor_baseline = calculate_vendor_baseline_lcoe_simple(pj, 0.07, 3)
 
-            # Run learning simulation
-            n_sim = 10000
-            N_max = 30
-            learning_rates = [0.05, 0.10, 0.15]
-            N_values = 1:N_max
-
-            results = Dict{Float64, Vector{Float64}}()
-
-            for LR in learning_rates
-                lcoe_trajectory = Float64[]
-
-                for N in N_values
-                    rand_vars = gen_rand_vars(opt_scaling, n_sim, wacc_range,
-                                             electricity_price_mean, pj;
-                                             apply_learning=true,
-                                             N_unit=N,
-                                             LR=LR,
-                                             kappa=1.0,
-                                             apply_soak_discount=false,
-                                             construction_time_range=construction_time_ranges[pj.scale],
-                                             quiet=true)
-
-                    disc_res = mc_run(n_sim, pj, rand_vars)
-                    res = npv_lcoe(disc_res, decompose=false)
-
-                    push!(lcoe_trajectory, median(res.lcoe))
-                end
-
-                results[LR] = lcoe_trajectory
-            end
-
-            # Create subplot - row 1 for plot, col for position
+            # Create subplot
             ax = Axis(fig[1, col],
                      xlabel = "Cumulative Units (N)",
                      ylabel = col == 1 ? "LCOE [EUR₂₀₂₅/MWh]" : "",
                      title = "$(pj.name) ($(pj.type))",
-                     titlesize = 18,
-                     titlefont = :bold,
+                     titlesize = 16,
                      xlabelsize = 14,
                      ylabelsize = 14,
                      xticklabelsize = 12,
                      yticklabelsize = 12)
 
-            # Plot curves
-            for LR in learning_rates
-                lines!(ax, collect(N_values), results[LR],
-                       color = lr_colors[LR],
-                       linestyle = lr_styles[LR],
-                       linewidth = 2.5)
-            end
-
-            # Vendor baseline
+            # Vendor baseline line
             hlines!(ax, [vendor_baseline],
                     color = :red,
                     linestyle = :dashdot,
-                    linewidth = 2.5)
+                    linewidth = 2.0,
+                    label = col == 1 ? "Vendor Baseline" : "")
 
-            # Find crossing for base case (LR=10%)
-            base_trajectory = results[0.10]
-            crossing_idx = findfirst(x -> x <= vendor_baseline, base_trajectory)
+            # Plot learning curves using Wright's Law (FAST - no simulation)
+            for LR in learning_rates
+                lcoe_curve = Float64[]
+                lcoe_lower = Float64[]
+                lcoe_upper = Float64[]
 
-            if !isnothing(crossing_idx)
-                crossing_n = N_values[crossing_idx]
-                crossing_lcoe = base_trajectory[crossing_idx]
+                for N in N_values
+                    # Wright's Law: LCOE_N = LCOE_1 * (1-LR)^log2(N)
+                    multiplier = (1 - LR)^(log2(N))
+                    noak_lcoe = foak_lcoe * multiplier
+                    push!(lcoe_curve, noak_lcoe)
 
-                scatter!(ax, [crossing_n], [crossing_lcoe],
-                        color = :red,
-                        markersize = 12,
-                        marker = :star5)
+                    # Propagate uncertainty
+                    noak_std = foak_std * multiplier
+                    push!(lcoe_lower, noak_lcoe - 1.96 * noak_std)
+                    push!(lcoe_upper, noak_lcoe + 1.96 * noak_std)
+                end
 
-                text!(ax, crossing_n + 1, crossing_lcoe,
-                      text = "N=$(crossing_n)",
-                      align = (:left, :center),
-                      fontsize = 12,
-                      color = :red,
-                      font = :bold)
+                # Confidence band
+                band_alpha = LR == 0.10 ? 0.25 : 0.15
+                band!(ax, N_values, lcoe_lower, lcoe_upper,
+                     color = (reactor_color, band_alpha))
 
-                push!(crossing_data, (pj.name, vendor_baseline, crossing_n, crossing_lcoe))
-            else
-                push!(crossing_data, (pj.name, vendor_baseline, missing, missing))
+                # Line
+                lines!(ax, N_values, lcoe_curve,
+                      color = reactor_color,
+                      linestyle = :solid,
+                      linewidth = lr_linewidths[LR],
+                      label = lr_labels[LR])
+
+                # Scatter points
+                scatter!(ax, N_values, lcoe_curve,
+                        color = reactor_color,
+                        markersize = LR == 0.10 ? 8 : 6,
+                        strokewidth = 1,
+                        strokecolor = :white)
+
+                # Find crossing point for base case
+                if LR == 0.10
+                    crossing_idx = findfirst(x -> x <= vendor_baseline, lcoe_curve)
+                    if !isnothing(crossing_idx)
+                        N_hit = N_values[crossing_idx]
+                        vlines!(ax, [N_hit],
+                               color = reactor_color,
+                               linestyle = :dash,
+                               linewidth = 1)
+                        scatter!(ax, [N_hit], [lcoe_curve[crossing_idx]],
+                                color = :red,
+                                markersize = 10,
+                                marker = :star5)
+
+                        push!(crossing_data, (pj.name, vendor_baseline, N_hit, lcoe_curve[crossing_idx]))
+                    else
+                        push!(crossing_data, (pj.name, vendor_baseline, missing, missing))
+                    end
+                end
+            end
+
+            # Add legend to first subplot only
+            if col == 1
+                axislegend(ax, position = :rt, framevisible = true,
+                          labelsize = 10, titlesize = 11)
             end
         end
-
-        # Add shared legend at bottom
-        legend_elements = [
-            LineElement(color = lr_colors[0.05], linestyle = lr_styles[0.05], linewidth = 2.5),
-            LineElement(color = lr_colors[0.10], linestyle = lr_styles[0.10], linewidth = 2.5),
-            LineElement(color = lr_colors[0.15], linestyle = lr_styles[0.15], linewidth = 2.5),
-            LineElement(color = :red, linestyle = :dashdot, linewidth = 2.5)
-        ]
-
-        legend_labels = [
-            "LR 5% (Pessimistic)",
-            "LR 10% (Base)",
-            "LR 15% (Optimistic)",
-            "Vendor Baseline"
-        ]
-
-        Legend(fig[2, :],
-               legend_elements,
-               legend_labels,
-               orientation = :horizontal,
-               tellwidth = false,
-               tellheight = true,
-               framevisible = true,
-               labelsize = 14,
-               patchsize = (25, 10))
 
         push!(figures, fig)
     end
@@ -5153,4 +5172,229 @@ function learning_curves_pairs_appendix(pjs::Vector, wacc_range::Vector,
     @info "Created $(length(figures)) paired learning curve figures"
 
     return figures, crossing_data
+end
+
+"""
+    plot_reactor_types_operating(inputpath::String)
+
+Create a bar chart showing the number of operating reactors by type.
+Data is read from imfreactornumbers.csv.
+
+# Arguments
+- `inputpath::String`: Path to the input directory containing imfreactornumbers.csv
+
+# Returns
+- `Figure`: The Makie figure object
+"""
+function plot_reactor_types_operating(inputpath::String)
+    # Read the data
+    filepath = joinpath(inputpath, "imfreactornumbers.csv")
+
+    # Read CSV - the file has a specific format with quotes
+    lines = readlines(filepath)
+
+    reactor_types = String[]
+    reactor_counts = Int[]
+
+    for (i, line) in enumerate(lines)
+        if i == 1
+            continue  # Skip header
+        end
+        # Parse "Type (ABBR),number" format
+        line = strip(line, ['"', ' '])
+        if isempty(line)
+            continue
+        end
+
+        # Find the last comma to split type and number
+        last_comma = findlast(',', line)
+        if isnothing(last_comma)
+            continue
+        end
+
+        reactor_type = strip(line[1:last_comma-1], '"')
+        count_str = strip(line[last_comma+1:end], '"')
+
+        push!(reactor_types, reactor_type)
+        push!(reactor_counts, parse(Int, count_str))
+    end
+
+    # Create shorter labels for display (extract abbreviation)
+    short_labels = String[]
+    for rt in reactor_types
+        # Extract abbreviation from parentheses
+        m = match(r"\(([^)]+)\)", rt)
+        if !isnothing(m)
+            push!(short_labels, m.captures[1])
+        else
+            push!(short_labels, rt[1:min(10, length(rt))])
+        end
+    end
+
+    # Sort by count descending
+    sort_idx = sortperm(reactor_counts, rev=true)
+    reactor_types = reactor_types[sort_idx]
+    reactor_counts = reactor_counts[sort_idx]
+    short_labels = short_labels[sort_idx]
+
+    # Reactor type colors (consistent with other plots in the codebase)
+    reactor_type_colors = Dict(
+        "PWR" => RGBf(0.8, 0.4, 0.0),    # Orange (same as BWR - light water reactors)
+        "BWR" => RGBf(0.9, 0.5, 0.1),    # Lighter orange
+        "PHWR" => RGBf(0.2, 0.4, 0.8),   # Blue (heavy water variant)
+        "LWGR" => RGBf(0.6, 0.3, 0.7),   # Purple (graphite moderated)
+        "AGR" => RGBf(0.3, 0.7, 0.3),    # Green (gas-cooled)
+        "FNR" => RGBf(0.0, 0.5, 0.5),    # Teal (fast reactors, same as SFR)
+        "HTGR" => RGBf(0.7, 0.6, 0.0)    # Yellow (high temp, same as HTR)
+    )
+
+    # Get colors for each bar based on abbreviation
+    colors = [get(reactor_type_colors, label, RGBf(0.5, 0.5, 0.5)) for label in short_labels]
+
+    # Create figure
+    fig = Figure(size=(900, 500), backgroundcolor=:white)
+
+    ax = Axis(fig[1, 1],
+              xlabel = "Reactor Type",
+              ylabel = "Number of Operating Reactors",
+              title = "Global Operating Nuclear Reactors by Type",
+              titlesize = 22,
+              xlabelsize = 18,
+              ylabelsize = 18,
+              xticklabelsize = 14,
+              yticklabelsize = 14,
+              xticks = (1:length(short_labels), short_labels),
+              xticklabelrotation = π/6)
+
+    barplot!(ax, 1:length(reactor_counts), reactor_counts,
+             color = colors,
+             strokewidth = 1,
+             strokecolor = :black)
+
+    # Add value labels on top of bars
+    for (i, count) in enumerate(reactor_counts)
+        text!(ax, i, count + 5,
+              text = string(count),
+              align = (:center, :bottom),
+              fontsize = 14,
+              font = :bold)
+    end
+
+    # Adjust y-axis limits to make room for labels
+    ylims!(ax, 0, maximum(reactor_counts) * 1.15)
+
+    # Add a legend with full names
+    legend_entries = [PolyElement(color = colors[i], strokecolor = :black, strokewidth = 1)
+                      for i in 1:length(reactor_types)]
+
+    Legend(fig[1, 2],
+           legend_entries,
+           reactor_types,
+           "Reactor Types",
+           framevisible = true,
+           labelsize = 12,
+           titlesize = 14,
+           patchsize = (20, 20),
+           rowgap = 5)
+
+    return fig
+end
+
+"""
+    plot_uranium_prices(inputpath::String)
+
+Create a line chart showing uranium prices over time.
+Data is read from uraniumprices.csv.
+
+# Arguments
+- `inputpath::String`: Path to the input directory containing uraniumprices.csv
+
+# Returns
+- `Figure`: The Makie figure object
+"""
+function plot_uranium_prices(inputpath::String)
+    # Read the data
+    filepath = joinpath(inputpath, "uraniumprices.csv")
+    df = CSV.read(filepath, DataFrame)
+
+    # Parse the year column (format: YYYYMn)
+    years = Float64[]
+    prices = Float64[]
+
+    for row in eachrow(df)
+        year_str = string(row.year)
+        # Parse YYYYM format
+        m = match(r"(\d{4})M(\d+)", year_str)
+        if !isnothing(m)
+            year = parse(Int, m.captures[1])
+            month = parse(Int, m.captures[2])
+            # Convert to decimal year
+            decimal_year = year + (month - 1) / 12
+            push!(years, decimal_year)
+            push!(prices, row.usd)
+        end
+    end
+
+    # Create figure
+    fig = Figure(size=(1000, 500), backgroundcolor=:white)
+
+    ax = Axis(fig[1, 1],
+              xlabel = "Year",
+              ylabel = "Price (USD/lb U₃O₈)",
+              title = "Uranium Spot Price (1990-2025)",
+              titlesize = 22,
+              xlabelsize = 18,
+              ylabelsize = 18,
+              xticklabelsize = 14,
+              yticklabelsize = 14)
+
+    # Plot the line
+    lines!(ax, years, prices,
+           color = :steelblue,
+           linewidth = 2)
+
+    # Add a filled area under the line
+    band!(ax, years, zeros(length(years)), prices,
+          color = (:steelblue, 0.2))
+
+    # Mark key events with annotations
+    # 2007 peak (Fukushima anticipation bubble)
+    peak_2007_idx = argmax(prices[1:findfirst(x -> x >= 2008, years)])
+    if peak_2007_idx !== nothing
+        scatter!(ax, [years[peak_2007_idx]], [prices[peak_2007_idx]],
+                 color = :red, markersize = 10)
+        text!(ax, years[peak_2007_idx], prices[peak_2007_idx] + 5,
+              text = "2007 Peak\n\$$(round(Int, prices[peak_2007_idx]))",
+              align = (:center, :bottom),
+              fontsize = 11)
+    end
+
+    # 2011 Fukushima
+    fukushima_idx = findfirst(x -> x >= 2011.2 && x < 2011.5, years)
+    if fukushima_idx !== nothing
+        vlines!(ax, [2011.25], color = (:gray, 0.5), linestyle = :dash, linewidth = 1.5)
+        text!(ax, 2011.25, maximum(prices) * 0.85,
+              text = "Fukushima\n(Mar 2011)",
+              align = (:center, :center),
+              fontsize = 10,
+              color = :gray)
+    end
+
+    # Recent uptick (2024)
+    recent_peak_idx = argmax(prices[findfirst(x -> x >= 2023, years):end]) + findfirst(x -> x >= 2023, years) - 1
+    if recent_peak_idx !== nothing && recent_peak_idx <= length(prices)
+        scatter!(ax, [years[recent_peak_idx]], [prices[recent_peak_idx]],
+                 color = :darkgreen, markersize = 10)
+        text!(ax, years[recent_peak_idx], prices[recent_peak_idx] + 5,
+              text = "2024 Peak\n\$$(round(Int, prices[recent_peak_idx]))",
+              align = (:center, :bottom),
+              fontsize = 11,
+              color = :darkgreen)
+    end
+
+    # Set axis limits
+    xlims!(ax, minimum(years) - 0.5, maximum(years) + 0.5)
+    ylims!(ax, 0, maximum(prices) * 1.15)
+
+    return fig
 end
